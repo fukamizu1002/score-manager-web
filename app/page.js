@@ -204,7 +204,6 @@ function Detail({campus,students,exams,scores,sid,setSid,inter,setInter}){
 
      <div className="card s12 aiSummary">
        <h3>データサマリー</h3>
-       <p className="muted">このページを含むPDFをChatGPTにアップロードすると、以下の客観データをもとに講評を作成できます。</p>
        <div className="summaryBlock">
          <p><b>校舎：</b>{campus}</p>
          <p><b>生徒：</b>{s.name}（{s.grade}）</p>
