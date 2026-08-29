@@ -2,7 +2,7 @@
 import {useEffect,useMemo,useState} from "react";
 import {auth,db} from "../lib/firebase";
 import {onAuthStateChanged,signInWithEmailAndPassword,signOut} from "firebase/auth";
-import {collection,addDoc,deleteDoc,doc,getDoc,onSnapshot,orderBy,query,serverTimestamp} from "firebase/firestore";
+import {collection,addDoc,deleteDoc,doc,getDoc,onSnapshot,orderBy,query,serverTimestamp,updateDoc} from "firebase/firestore";
 
 const GRADES=["小1","小2","小3","小4","小5","小6","中1","中2","中3","高1","高2","高3"];
 const CAMPUS={studyshare:"StudyShare",ena_takadanobaba:"ena高田馬場"};
@@ -36,7 +36,7 @@ function App({profile}){
  useEffect(()=>{if(!sid&&students[0])setSid(students[0].id)},[students,sid]);
  return <div className={inter?"interview":""}><header className="header"><div className="headerInner"><div><b>{name}｜過去問・成績管理</b><div className="muted">成績・提出・復習・AI講評・面談PDF</div></div><div className="nav adminOnly">{[["dash","ダッシュボード"],["entry","結果入力"],["students","生徒"],["exams","過去問"],["detail","面談・分析"]].map(([k,l])=><button className={tab===k?"active":""} onClick={()=>{setTab(k);if(k!=="detail")setInter(false)}} key={k}>{l}</button>)}<button onClick={()=>signOut(auth)}>ログアウト</button></div></div></header><main className="container">
  {tab==="dash"&&<Dash students={students} exams={exams} scores={scores}/>}
- {tab==="students"&&<Students cid={cid} data={students}/>}
+ {tab==="students"&&<Students cid={cid} data={students} exams={exams}/>}
  {tab==="exams"&&<Exams cid={cid} data={exams}/>}
  {tab==="entry"&&<Entry cid={cid} students={students} exams={exams} scores={scores}/>}
  {tab==="detail"&&<Detail campus={name} students={students} exams={exams} scores={scores} sid={sid} setSid={setSid} inter={inter} setInter={setInter}/>}
@@ -47,10 +47,15 @@ function Dash({students,exams,scores}){
  const alerts=[];scores.forEach(r=>{let s=students.find(x=>x.id===r.studentId),e=exams.find(x=>x.id===r.examId);if(!s||!e)return;let a=st(r.submitDue,r.submitDate),b=st(r.reviewDue,r.reviewDate);if(["未提出","遅延"].includes(a))alerts.push(`${s.name}：${e.subject} 過去問 ${a}`);if(["未提出","遅延"].includes(b))alerts.push(`${s.name}：${e.subject} 復習ノート ${b}`)});
  return <div className="grid">{[["生徒数",students.length],["過去問",exams.length],["結果",scores.length],["期限内提出率",due.length?pct(ont/due.length*100):"—"]].map(x=><div className="card s3" key={x[0]}><div className="muted">{x[0]}</div><div className="stat">{x[1]}</div></div>)}<div className="card s12"><h3>要対応</h3>{alerts.length?alerts.map((a,i)=><p key={i}>{a}</p>):<p className="muted">要対応なし</p>}</div></div>
 }
-function Students({cid,data}){
- const [f,setF]=useState({name:"",grade:"中3",schoolName:"",targetSchool:"",targetRate:"",note:""});
- const add=async e=>{e.preventDefault();await addDoc(collection(db,"campuses",cid,"students"),{...f,targetRate:f.targetRate?Number(f.targetRate):null,createdAt:serverTimestamp()});setF({name:"",grade:"中3",schoolName:"",targetSchool:"",targetRate:"",note:""})};
- return <div className="grid"><div className="card s4"><h2>生徒追加</h2><form className="form" onSubmit={add}><F l="名前"><input required value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></F><F l="学年" c="f6"><select value={f.grade} onChange={e=>setF({...f,grade:e.target.value})}>{GRADES.map(g=><option key={g}>{g}</option>)}</select></F><F l="在籍学校" c="f6"><input value={f.schoolName} onChange={e=>setF({...f,schoolName:e.target.value})}/></F><F l="第一志望"><input value={f.targetSchool} onChange={e=>setF({...f,targetSchool:e.target.value})}/></F><F l="目標得点率" c="f6"><input type="number" value={f.targetRate} onChange={e=>setF({...f,targetRate:e.target.value})}/></F><F l="備考"><textarea value={f.note} onChange={e=>setF({...f,note:e.target.value})}/></F><button className="btn primary">追加</button></form></div><div className="card s8"><h2>生徒一覧</h2><div className="table"><table><tbody>{data.map(s=><tr key={s.id}><td>{s.name}</td><td>{s.grade}</td><td>{s.schoolName}</td><td>{s.targetSchool}</td><td>{s.targetRate!=null?pct(Number(s.targetRate)):"—"}</td><td><button className="btn danger" onClick={()=>confirm("削除しますか？")&&deleteDoc(doc(db,"campuses",cid,"students",s.id))}>削除</button></td></tr>)}</tbody></table></div></div></div>
+function Students({cid,data,exams}){
+ const empty={name:"",grade:"中3",schoolName:"",targetSchool:"",targetRate:"",subjectTargets:{},note:""};
+ const [f,setF]=useState(empty),[editingId,setEditingId]=useState(null);
+ const subjects=[...new Set([...exams.map(e=>e.subject),...data.flatMap(s=>Object.keys(s.subjectTargets||{}))].filter(Boolean))];
+ const normalize=x=>({...x,targetRate:x.targetRate!==""&&x.targetRate!=null?Number(x.targetRate):null,subjectTargets:Object.fromEntries(Object.entries(x.subjectTargets||{}).filter(([,v])=>v!=="").map(([k,v])=>[k,Number(v)]))});
+ const save=async e=>{e.preventDefault();if(editingId)await updateDoc(doc(db,"campuses",cid,"students",editingId),normalize(f));else await addDoc(collection(db,"campuses",cid,"students"),{...normalize(f),createdAt:serverTimestamp()});setF(empty);setEditingId(null)};
+ const edit=s=>{setEditingId(s.id);setF({name:s.name||"",grade:s.grade||"中3",schoolName:s.schoolName||"",targetSchool:s.targetSchool||"",targetRate:s.targetRate??"",subjectTargets:s.subjectTargets||{},note:s.note||""})};
+ const setSubject=(subject,value)=>setF({...f,subjectTargets:{...(f.subjectTargets||{}),[subject]:value}});
+ return <div className="grid"><div className="card s4"><h2>{editingId?"生徒情報を編集":"生徒追加"}</h2><form className="form" onSubmit={save}><F l="名前"><input required value={f.name} onChange={e=>setF({...f,name:e.target.value})}/></F><F l="学年" c="f6"><select value={f.grade} onChange={e=>setF({...f,grade:e.target.value})}>{GRADES.map(g=><option key={g}>{g}</option>)}</select></F><F l="在籍学校" c="f6"><input value={f.schoolName} onChange={e=>setF({...f,schoolName:e.target.value})}/></F><F l="第一志望"><input value={f.targetSchool} onChange={e=>setF({...f,targetSchool:e.target.value})}/></F><F l="志望校の総合目標得点率" c="f6"><input type="number" min="0" max="100" value={f.targetRate} onChange={e=>setF({...f,targetRate:e.target.value})}/></F><F l="科目別目標得点率"><div className="subjectTargets">{[...new Set(["国語","数学","英語","理科","社会",...subjects])].map(x=><label key={x}>{x}<input type="number" min="0" max="100" value={f.subjectTargets?.[x]??""} onChange={e=>setSubject(x,e.target.value)}/></label>)}</div></F><F l="備考"><textarea value={f.note} onChange={e=>setF({...f,note:e.target.value})}/></F><button className="btn primary">{editingId?"更新":"追加"}</button>{editingId&&<button type="button" className="btn ghost" onClick={()=>{setEditingId(null);setF(empty)}}>キャンセル</button>}</form></div><div className="card s8"><h2>生徒一覧</h2><div className="table"><table><thead><tr><th>生徒</th><th>学年</th><th>第一志望</th><th>総合目標</th><th>操作</th></tr></thead><tbody>{data.map(s=><tr key={s.id}><td>{s.name}</td><td>{s.grade}</td><td>{s.targetSchool||"—"}</td><td>{s.targetRate!=null?pct(Number(s.targetRate)):"—"}</td><td><button className="btn ghost" onClick={()=>edit(s)}>編集</button> <button className="btn danger" onClick={()=>confirm("削除しますか？")&&deleteDoc(doc(db,"campuses",cid,"students",s.id))}>削除</button></td></tr>)}</tbody></table></div></div></div>
 }
 function Exams({cid,data}){
  const [f,setF]=useState({school:"",year:new Date().getFullYear(),subject:"数学",max:100,type:""});
@@ -74,19 +79,26 @@ function Detail({campus,students,exams,scores,sid,setSid,inter,setInter}){
    });
    return Object.entries(m).map(([subject,v])=>{
      const vals=v.map(x=>x.rate);
-     const recent=vals.slice(-3);
-     const first=vals.slice(0,Math.min(3,vals.length));
+     const recent3=vals.slice(-3),recent5=vals.slice(-5);
+     const split=Math.floor(vals.length/2),firstHalf=vals.slice(0,split),secondHalf=vals.slice(split);
+     const firstHalfAvg=avg(firstHalf),secondHalfAvg=avg(secondHalf);
+     const subjectTarget=s?.subjectTargets?.[subject];
      return {
        subject,
        avg:avg(vals),
-       recentAvg:avg(recent),
+       recentAvg:avg(recent3),
+       recent5Avg:avg(recent5),
        high:Math.max(...vals),
        low:Math.min(...vals),
        count:vals.length,
-       change: recent.length && first.length ? avg(recent)-avg(first) : 0
+       subjectTarget:subjectTarget!=null?Number(subjectTarget):null,
+       targetGap:subjectTarget!=null?avg(recent3)-Number(subjectTarget):null,
+       firstHalfAvg:firstHalf.length?firstHalfAvg:null,
+       secondHalfAvg:secondHalf.length?secondHalfAvg:null,
+       halfGap:firstHalf.length&&secondHalf.length?secondHalfAvg-firstHalfAvg:null
      };
    });
- },[rows,exams]);
+ },[rows,exams,s]);
 
  if(!s)return <div className="card">生徒を選択してください。</div>;
 
@@ -134,16 +146,14 @@ function Detail({campus,students,exams,scores,sid,setSid,inter,setInter}){
          <div><b>学年</b><br/>{s.grade}</div>
          <div><b>在籍学校</b><br/>{s.schoolName||"—"}</div>
          <div><b>第一志望</b><br/>{s.targetSchool||"—"}</div>
-         <div><b>目標得点率</b><br/>{s.targetRate!=null?pct(Number(s.targetRate)):"—"}</div>
+         <div><b>志望校の総合目標得点率</b><br/>{s.targetRate!=null?pct(Number(s.targetRate)):"—"}</div>
        </div>
      </div>
 
-     {stats.map(x=><div className="card s3" key={x.subject}>
-       <div className="muted">{x.subject} 直近3回平均</div>
-       <div className="stat">{pct(x.recentAvg)}</div>
-       <div className="muted">全体平均 {pct(x.avg)}</div>
-       <div className="muted">最高 {pct(x.high)} / 最低 {pct(x.low)}</div>
-       <div className="muted">実施 {x.count}回</div>
+     {stats.map(x=><div className="card s4 subjectCard" key={x.subject}>
+       <h3>{x.subject}</h3>
+       <div className="stat">{pct(x.recentAvg)}</div><div className="muted">直近3回平均</div>
+       <dl className="metricList"><div><dt>全体平均</dt><dd>{pct(x.avg)}</dd></div><div><dt>直近5回平均</dt><dd>{pct(x.recent5Avg)}</dd></div><div><dt>科目別目標</dt><dd>{x.subjectTarget!=null?pct(x.subjectTarget):"—"}</dd></div><div><dt>目標との差</dt><dd>{x.targetGap!=null?`${x.targetGap>=0?"+":""}${x.targetGap.toFixed(1)}pt`:"—"}</dd></div><div><dt>最高 / 最低</dt><dd>{pct(x.high)} / {pct(x.low)}</dd></div><div><dt>実施回数</dt><dd>{x.count}回</dd></div><div><dt>前半平均</dt><dd>{x.firstHalfAvg!=null?pct(x.firstHalfAvg):"—"}</dd></div><div><dt>後半平均</dt><dd>{x.secondHalfAvg!=null?pct(x.secondHalfAvg):"—"}</dd></div><div><dt>前後半差</dt><dd>{x.halfGap!=null?`${x.halfGap>=0?"+":""}${x.halfGap.toFixed(1)}pt`:"—"}</dd></div></dl>
      </div>)}
 
      <div className="card s6">
@@ -166,7 +176,7 @@ function Detail({campus,students,exams,scores,sid,setSid,inter,setInter}){
 
      <div className="card s12">
        <h3>得点率推移</h3>
-       <Trend rows={rows} exams={exams} target={s.targetRate}/>
+       <Trend rows={rows} exams={exams} target={s.targetRate} subjectTargets={s.subjectTargets||{}}/>
      </div>
 
      <div className="card s12">
@@ -200,26 +210,22 @@ function Detail({campus,students,exams,scores,sid,setSid,inter,setInter}){
          <p><b>生徒：</b>{s.name}（{s.grade}）</p>
          <p><b>在籍学校：</b>{s.schoolName||"未登録"}</p>
          <p><b>第一志望：</b>{s.targetSchool||"未登録"}</p>
-         <p><b>目標得点率：</b>{s.targetRate!=null?pct(Number(s.targetRate)):"未登録"}</p>
+         <p><b>志望校の総合目標得点率：</b>{s.targetRate!=null?pct(Number(s.targetRate)):"未登録"}</p>
          <p><b>全科目直近3件平均：</b>{rows.length?pct(recent):"データなし"}</p>
          <p><b>目標との差：</b>{targetGap!=null?`${targetGap>=0?"+":""}${targetGap.toFixed(1)}pt`:"算出不可"}</p>
          <hr/>
-         {stats.map(x=><p key={x.subject}><b>{x.subject}：</b>全体平均 {pct(x.avg)} / 直近3回平均 {pct(x.recentAvg)} / 最高 {pct(x.high)} / 最低 {pct(x.low)} / 実施 {x.count}回 / 初期3回平均との差 {x.change>=0?"+":""}{x.change.toFixed(1)}pt</p>)}
+         {stats.map(x=><p key={x.subject}><b>{x.subject}：</b>科目別目標 {x.subjectTarget!=null?pct(x.subjectTarget):"未登録"} / 全体平均 {pct(x.avg)} / 直近3回平均 {pct(x.recentAvg)} / 直近5回平均 {pct(x.recent5Avg)} / 目標との差 {x.targetGap!=null?`${x.targetGap>=0?"+":""}${x.targetGap.toFixed(1)}pt`:"算出不可"} / 最高 {pct(x.high)} / 最低 {pct(x.low)} / 実施 {x.count}回 / 前半平均 {x.firstHalfAvg!=null?pct(x.firstHalfAvg):"算出不可"} / 後半平均 {x.secondHalfAvg!=null?pct(x.secondHalfAvg):"算出不可"} / 前後半差 {x.halfGap!=null?`${x.halfGap>=0?"+":""}${x.halfGap.toFixed(1)}pt`:"算出不可"}</p>)}
          <hr/>
          <p><b>過去問提出：</b>期限内率 {sub.length?pct(subOn/sub.length*100):"—"} / 期限内 {subOn} / 遅延 {subLate} / 未提出 {subMissing}</p>
          <p><b>復習ノート：</b>期限内率 {rev.length?pct(revOn/rev.length*100):"—"} / 期限内 {revOn} / 遅延 {revLate} / 未提出 {revMissing}</p>
          <p><b>復習状況：</b>完了 {completed} / 復習中 {reviewing} / 未復習 {notReviewed}</p>
        </div>
-       <div className="promptBox">
-         <b>ChatGPTへの推奨指示：</b><br/>
-         「添付した面談レポートを分析し、数値にないことは推測せず、①総合評価 ②良い点 ③課題 ④成績推移 ⑤提出・復習習慣 ⑥志望校目標との距離 ⑦今後1〜2か月の具体的な学習方針、の順で保護者面談用の講評を作成してください。」
-       </div>
      </div>
    </div>
  </>
 }
-function Trend({rows,exams,target}){
- const w=900,h=280,p=42,pts=rows.map((r,i)=>{let e=exams.find(x=>x.id===r.examId),rate=e?Number(r.score)/Number(e.max)*100:0,x=rows.length<=1?w/2:p+i*(w-p*2)/(rows.length-1),y=h-p-rate/100*(h-p*2);return{x,y,rate}});
- return <svg viewBox={`0 0 ${w} ${h}`} className="chart">{[0,20,40,60,80,100].map(v=>{let y=h-p-v/100*(h-p*2);return <g key={v}><line x1={p} y1={y} x2={w-p} y2={y} stroke="#ddd"/><text x="4" y={y+4} fontSize="12">{v}%</text></g>})}{target!=null&&<line x1={p} y1={h-p-Number(target)/100*(h-p*2)} x2={w-p} y2={h-p-Number(target)/100*(h-p*2)} stroke="#c53c3c" strokeDasharray="7 5"/>}{pts.length>1&&<polyline fill="none" stroke="#2f6fed" strokeWidth="3" points={pts.map(x=>`${x.x},${x.y}`).join(" ")}/>} {pts.map((x,i)=><circle key={i} cx={x.x} cy={x.y} r="5" fill="#2f6fed"/>)}</svg>
+function Trend({rows,exams,target,subjectTargets}){
+ const w=900,h=300,p=42,colors=["#c53c3c","#6f42c1","#00856a","#d97706","#c026d3"],pts=rows.map((r,i)=>{let e=exams.find(x=>x.id===r.examId),rate=e?Number(r.score)/Number(e.max)*100:0,x=rows.length<=1?w/2:p+i*(w-p*2)/(rows.length-1),y=h-p-rate/100*(h-p*2);return{x,y,rate,subject:e?.subject||""}}),targets=Object.entries(subjectTargets||{}).filter(([,v])=>v!==""&&v!=null);
+ return <><svg viewBox={`0 0 ${w} ${h}`} className="chart">{[0,20,40,60,80,100].map(v=>{let y=h-p-v/100*(h-p*2);return <g key={v}><line x1={p} y1={y} x2={w-p} y2={y} stroke="#ddd"/><text x="4" y={y+4} fontSize="12">{v}%</text></g>})}{target!=null&&<g><line x1={p} y1={h-p-Number(target)/100*(h-p*2)} x2={w-p} y2={h-p-Number(target)/100*(h-p*2)} stroke="#172033" strokeWidth="2" strokeDasharray="9 5"/><text x={p+5} y={h-p-Number(target)/100*(h-p*2)-5} fontSize="11">総合目標 {target}%</text></g>}{targets.map(([subject,value],i)=>{const y=h-p-Number(value)/100*(h-p*2),color=colors[i%colors.length];return <g key={subject}><line x1={p} y1={y} x2={w-p} y2={y} stroke={color} strokeDasharray="3 5"/><text x={w-p-100} y={y-4} fontSize="10" fill={color}>{subject} {value}%</text></g>})}{pts.length>1&&<polyline fill="none" stroke="#2f6fed" strokeWidth="3" points={pts.map(x=>`${x.x},${x.y}`).join(" ")}/>} {pts.map((x,i)=><g key={i}><circle cx={x.x} cy={x.y} r="5" fill="#2f6fed"/><title>{x.subject} {x.rate.toFixed(1)}%</title></g>)}</svg><p className="chartLegend">青線：得点率推移　黒破線：総合目標　色付き点線：科目別目標</p></>
 }
 
