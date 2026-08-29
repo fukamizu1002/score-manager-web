@@ -5,7 +5,7 @@ iPhone / iPad / PC から同じURLで利用できる Web アプリです。
 ## 実装済み機能
 - メールアドレス・パスワードログイン
 - 生徒追加 / 削除
-- 学年 / 第一志望 / 志望校目標得点率
+- 学年 / 第一志望 / 志望校の総合目標得点率 / 科目別目標得点率
 - 過去問マスター追加 / 削除
 - 日付 → 学年 → 生徒 → 科目 → 年度 → 過去問 → 点数入力
 - 得点率自動計算
@@ -19,8 +19,8 @@ iPhone / iPad / PC から同じURLで利用できる Web アプリです。
 - 要対応一覧
 - 生徒別・科目別分析
 - 得点率推移グラフ
-- 志望校目標ライン
-- AI講評
+- 総合・科目別目標ライン
+- 直近5回平均 / 前半・後半比較
 - 面談モード
 - PDF / 印刷
 - Firebase Firestore による複数端末同期
@@ -38,10 +38,7 @@ iPhone / iPad / PC から同じURLで利用できる Web アプリです。
 
 ## 2. .env.local を作る
 `.env.local.example` をコピーして `.env.local` に名前を変更し、
-Firebaseの値とOpenAI APIキーを入力します。
-
-OPENAI_API_KEY は未設定でもアプリは動きます。
-未設定の場合は簡易講評が表示されます。
+Firebaseの値を入力します。OpenAI APIキーは不要です。
 
 ## 3. Firestoreルール
 Firebase Console → Firestore Database → ルール に
@@ -89,3 +86,4 @@ SafariでWebアプリURLを開く
 - 保護者配布用PDFの専用レイアウト
 - 監査ログ
 - バックアップ
+
