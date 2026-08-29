@@ -14,22 +14,29 @@
 - 講師コメント
 - 科目別平均
 - 直近3回平均
+- 直近5回平均
+- 志望校の総合目標得点率
+- 科目別目標得点率
+- 前半平均・後半平均・前後半差（奇数件は中央を後半に含む）
 - 最高・最低得点率
 - 得点率推移グラフ
 - 目標得点率との差
 - 面談用PDF
 - PDF最終ページにChatGPT分析用データサマリー
-- ChatGPTへの推奨プロンプト
+- 保護者へそのまま配布できるA4印刷レイアウト
 
 ## 更新方法
-1. ZIPを展開
-2. GitHubの現在のscore-manager-webリポジトリを開く
-3. V4のファイルで既存ファイルを置き換える
-4. Commit changes
-5. Vercelが自動Deployする
-6. FirestoreルールはV2校舎分離版のfirebase.rulesを使用
-7. Firebase Authenticationとusersコレクションで2校舎を割り当てる
+1. GitHubの `score-manager-web` を開く
+2. 更新済みファイルをアップロードして `Commit changes` を押す
+3. Vercelの `Deployments` で新しい行が `Ready` になるまで待つ
+4. 公開URLを開き、StudyShareとena高田馬場の両方でログインできることを確認する
+5. 生徒画面の「編集」から総合目標・科目別目標を登録する
+6. 面談・分析画面で数値を確認し、「面談PDFを作成 / 印刷」を押す
+7. 印刷先を「PDFに保存」、用紙をA4、倍率を既定にして保存する
+
+Firestoreルール、Firebase Authentication、`users` コレクション、環境変数は従来のV4から変更不要です。既存生徒は科目別目標が未登録の状態でそのまま表示され、編集後に新しい項目だけ追加保存されます。
 
 ## OpenAI API
 不要です。
 VercelにOPENAI_API_KEYを設定する必要もありません。
+
