@@ -2,16 +2,28 @@
 import {useEffect,useMemo,useState} from "react";
 import {auth,db} from "../lib/firebase";
 import {onAuthStateChanged,signInWithEmailAndPassword,signOut} from "firebase/auth";
-import {collection,addDoc,deleteDoc,doc,getDoc,onSnapshot,orderBy,query,serverTimestamp,updateDoc} from "firebase/firestore";
+import {collection,addDoc,deleteDoc,doc,getDoc,onSnapshot,orderBy,query,serverTimestamp,updateDoc,writeBatch} from "firebase/firestore";
 
 const GRADES=["小6","中3"];
 const CATEGORY_CONFIG={
  "私立中":{grade:"小6",subjects:["国語","算数","理科","社会"]},
- "都立中":{grade:"小6",subjects:["適性検査Ⅰ","適性検査Ⅱ","適性検査Ⅲ"]},
+ "都立中":{grade:"小6",subjects:["適性検査Ⅰ","適性検査Ⅱ","適性検査Ⅱ 大問1","適性検査Ⅱ 大問2","適性検査Ⅲ"]},
  "私立高":{grade:"中3",subjects:["国語","数学","英語"]},
  "都立高":{grade:"中3",subjects:["国語","数学","英語","理科","社会"]}
 };
 const categoriesForGrade=grade=>Object.entries(CATEGORY_CONFIG).filter(([,v])=>v.grade===grade).map(([k])=>k);
+const range=(from,to)=>Array.from({length:to-from+1},(_,i)=>from+i);
+function standardExamPresets(){
+ const list=[],push=(school,years,subjects,category="都立高")=>years.forEach(year=>subjects.forEach(subject=>list.push({school,year,subject,category,type:category,max:100})));
+ push("都立高共通問題",range(2015,2026),["国語","数学","英語","理科","社会"]);
+ ["日比谷","西","国立","戸山","青山","立川","八王子東","国分寺","新宿","墨田川"].forEach(s=>push(s,range(2018,2026),["国語","数学","英語"]));
+ push("都立国際",range(2018,2026),["英語"]);
+ push("都立中共同作成問題",range(2020,2026),["適性検査Ⅰ","適性検査Ⅱ"],"都立中");
+ const patterns={"小石川":["適性検査Ⅱ 大問2","適性検査Ⅲ"],"両国":["適性検査Ⅲ"],"桜修館":["適性検査Ⅰ","適性検査Ⅱ 大問1"],"富士":["適性検査Ⅲ"],"大泉":["適性検査Ⅲ"],"南多摩":["適性検査Ⅰ"],"立川国際":["適性検査Ⅰ"],"武蔵":["適性検査Ⅱ 大問2","適性検査Ⅲ"],"三鷹":["適性検査Ⅰ","適性検査Ⅱ 大問1"],"区立九段":["適性検査Ⅰ","適性検査Ⅱ","適性検査Ⅲ"]};
+ Object.entries(patterns).forEach(([school,subjects])=>push(school,range(2020,2026),subjects,"都立中"));
+ push("白鷗",range(2020,2023),["適性検査Ⅰ","適性検査Ⅲ"],"都立中");push("白鷗",range(2024,2026),["適性検査Ⅲ"],"都立中");
+ return list;
+}
 const CAMPUS={studyshare:"StudyShare",ena_takadanobaba:"ena高田馬場"};
 const today=()=>new Date().toISOString().slice(0,10), avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:0, pct=n=>Number.isFinite(n)?`${n.toFixed(1)}%`:"—";
 function st(d,a){if(!d&&!a)return"未設定";if(a&&!d)return"提出済";if(d&&!a)return"未提出";return new Date(a)<=new Date(d)?"期限内":"遅延"}
@@ -67,11 +79,12 @@ function Students({cid,data,exams}){
 }
 function Exams({cid,data}){
  const initial={school:"",year:new Date().getFullYear(),category:"私立中",subject:"国語",max:100};
- const [f,setF]=useState(initial),[editingId,setEditingId]=useState(null);
+ const [f,setF]=useState(initial),[editingId,setEditingId]=useState(null),[bulkMessage,setBulkMessage]=useState(""),[bulkBusy,setBulkBusy]=useState(false);
  const chooseCategory=category=>setF({...f,category,subject:CATEGORY_CONFIG[category].subjects[0]});
  const save=async e=>{e.preventDefault();const value={...f,type:f.category,year:Number(f.year),max:Number(f.max)};if(editingId)await updateDoc(doc(db,"campuses",cid,"exams",editingId),value);else await addDoc(collection(db,"campuses",cid,"exams"),{...value,createdAt:serverTimestamp()});setF(initial);setEditingId(null)};
  const edit=e=>{const category=CATEGORY_CONFIG[e.category||e.type]?e.category||e.type:"私立中",allowed=CATEGORY_CONFIG[CATEGORY_CONFIG[e.category||e.type]?e.category||e.type:"私立中"].subjects;setEditingId(e.id);setF({school:e.school||"",year:e.year||new Date().getFullYear(),category,subject:allowed.includes(e.subject)?e.subject:allowed[0],max:e.max||100})};
- return <div className="grid"><div className="card s4"><h2>{editingId?"過去問を編集":"過去問追加"}</h2><form className="form" onSubmit={save}><F l="過去問の種類"><select value={f.category} onChange={e=>chooseCategory(e.target.value)}>{Object.keys(CATEGORY_CONFIG).map(x=><option key={x}>{x}</option>)}</select></F><F l="学校名"><input required value={f.school} onChange={e=>setF({...f,school:e.target.value})}/></F><F l="年度" c="f6"><input type="number" value={f.year} onChange={e=>setF({...f,year:e.target.value})}/></F><F l="科目" c="f6"><select value={f.subject} onChange={e=>setF({...f,subject:e.target.value})}>{CATEGORY_CONFIG[f.category].subjects.map(x=><option key={x}>{x}</option>)}</select></F><F l="満点" c="f6"><input type="number" value={f.max} onChange={e=>setF({...f,max:e.target.value})}/></F><button className="btn primary">{editingId?"更新":"追加"}</button>{editingId&&<button type="button" className="btn ghost" onClick={()=>{setEditingId(null);setF(initial)}}>キャンセル</button>}</form></div><div className="card s8"><h2>過去問一覧</h2><div className="table"><table><thead><tr><th>種類</th><th>学校</th><th>年度</th><th>科目</th><th>満点</th><th>操作</th></tr></thead><tbody>{data.map(e=><tr key={e.id}><td>{e.category||e.type||"未分類"}</td><td>{e.school}</td><td>{e.year}</td><td>{e.subject}</td><td>{e.max}点</td><td><button className="btn ghost" onClick={()=>edit(e)}>編集</button> <button className="btn danger" onClick={()=>confirm("削除しますか？")&&deleteDoc(doc(db,"campuses",cid,"exams",e.id))}>削除</button></td></tr>)}</tbody></table></div></div></div>
+ const bulkAdd=async()=>{if(!confirm("確定済みの都立高・都立中過去問を一括登録しますか？既に同じ過去問がある場合は追加しません。"))return;setBulkBusy(true);setBulkMessage("");try{const key=x=>[x.category||x.type,x.school,String(x.year),x.subject].join("|");const existing=new Set(data.map(key)),items=standardExamPresets().filter(x=>!existing.has(key(x)));for(let i=0;i<items.length;i+=450){const batch=writeBatch(db);items.slice(i,i+450).forEach(x=>batch.set(doc(collection(db,"campuses",cid,"exams")),{...x,createdAt:serverTimestamp()}));await batch.commit()}setBulkMessage(items.length?`${items.length}件を登録しました。`:"すべて登録済みです。")}catch(e){console.error(e);setBulkMessage("一括登録に失敗しました。もう一度お試しください。")}finally{setBulkBusy(false)}};
+ return <div className="grid"><div className="card s4"><h2>{editingId?"過去問を編集":"過去問追加"}</h2><form className="form" onSubmit={save}><F l="過去問の種類"><select value={f.category} onChange={e=>chooseCategory(e.target.value)}>{Object.keys(CATEGORY_CONFIG).map(x=><option key={x}>{x}</option>)}</select></F><F l="学校名"><input required value={f.school} onChange={e=>setF({...f,school:e.target.value})}/></F><F l="年度" c="f6"><input type="number" value={f.year} onChange={e=>setF({...f,year:e.target.value})}/></F><F l="科目" c="f6"><select value={f.subject} onChange={e=>setF({...f,subject:e.target.value})}>{CATEGORY_CONFIG[f.category].subjects.map(x=><option key={x}>{x}</option>)}</select></F><F l="満点" c="f6"><input type="number" value={f.max} onChange={e=>setF({...f,max:e.target.value})}/></F><button className="btn primary">{editingId?"更新":"追加"}</button>{editingId&&<button type="button" className="btn ghost" onClick={()=>{setEditingId(null);setF(initial)}}>キャンセル</button>}</form><hr/><h3>定番過去問の一括登録</h3><p className="muted">都立高共通・自校作成校・都立国際・都立中共同作成・学校別独自問題・区立九段を登録します。</p><button className="btn primary" type="button" disabled={bulkBusy} onClick={bulkAdd}>{bulkBusy?"登録中…":"確定済み過去問を一括登録"}</button>{bulkMessage&&<p>{bulkMessage}</p>}</div><div className="card s8"><h2>過去問一覧</h2><div className="table"><table><thead><tr><th>種類</th><th>学校</th><th>年度</th><th>科目</th><th>満点</th><th>操作</th></tr></thead><tbody>{data.map(e=><tr key={e.id}><td>{e.category||e.type||"未分類"}</td><td>{e.school}</td><td>{e.year}</td><td>{e.subject}</td><td>{e.max}点</td><td><button className="btn ghost" onClick={()=>edit(e)}>編集</button> <button className="btn danger" onClick={()=>confirm("削除しますか？")&&deleteDoc(doc(db,"campuses",cid,"exams",e.id))}>削除</button></td></tr>)}</tbody></table></div></div></div>
 }
 function Entry({cid,students,exams,scores}){
  const blank={date:today(),grade:"",studentId:"",category:"",subject:"",year:"",examId:"",score:"",submitDue:"",submitDate:"",reviewDue:"",reviewDate:"",minutes:"",teacherComment:""};
