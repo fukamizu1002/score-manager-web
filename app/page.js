@@ -37,7 +37,7 @@ function eraYear(year){
  if(y>=1926)return `昭和${y===1926?"元":y-1925}年度`;
  return `${y}年度`;
 }
-const examYear=exam=>String(exam?.school||"").startsWith("Vもぎ")?`${exam.year}年度`:eraYear(exam?.year);
+const examYear=exam=>String(exam?.school||"").startsWith("Vもぎ")||(exam?.category||exam?.type)==="公立高校"?`${exam.year}年度`:eraYear(exam?.year);
 function st(d,a){if(!d&&!a)return"未設定";if(a&&!d)return"提出済";if(d&&!a)return"未提出";return new Date(a)<=new Date(d)?"期限内":"遅延"}
 function reviewState(r){return r.reviewDate&&(!r.reviewDue||new Date(r.reviewDate)<=new Date(r.reviewDue))?"復習完了":"未復習"}
 function B({s}){let c=s==="期限内"||s==="提出済"||s==="復習完了"?"ok":s==="遅延"||s==="復習中"?"warn":s==="未提出"||s==="未復習"?"bad":"gray";return <span className={`badge ${c}`}>{s}</span>}
