@@ -9,7 +9,8 @@ const CATEGORY_CONFIG={
  "私立中":{grade:"小6",subjects:["国語","算数","理科","社会"]},
  "都立中":{grade:"小6",subjects:["適性検査Ⅰ","適性検査Ⅱ","適性検査Ⅱ 大問1","適性検査Ⅱ 大問2","適性検査Ⅲ"]},
  "私立高":{grade:"中3",subjects:["国語","数学","英語"]},
- "都立高":{grade:"中3",subjects:["国語","数学","英語","理科","社会"]}
+ "都立高":{grade:"中3",subjects:["国語","数学","英語","理科","社会"]},
+ "公立高校":{grade:"中3",subjects:["理科","社会"]}
 };
 const categoriesForGrade=grade=>Object.entries(CATEGORY_CONFIG).filter(([,v])=>v.grade===grade).map(([k])=>k);
 const range=(from,to)=>Array.from({length:to-from+1},(_,i)=>from+i);
@@ -23,6 +24,8 @@ function standardExamPresets(){
  const patterns={"小石川":["適性検査Ⅱ 大問2","適性検査Ⅲ"],"両国":["適性検査Ⅲ"],"桜修館":["適性検査Ⅰ","適性検査Ⅱ 大問1"],"富士":["適性検査Ⅲ"],"大泉":["適性検査Ⅲ"],"南多摩":["適性検査Ⅰ"],"立川国際":["適性検査Ⅰ"],"武蔵":["適性検査Ⅱ 大問2","適性検査Ⅲ"],"三鷹":["適性検査Ⅰ","適性検査Ⅱ 大問1"],"区立九段":["適性検査Ⅰ","適性検査Ⅱ","適性検査Ⅲ"]};
  Object.entries(patterns).forEach(([school,subjects])=>push(school,range(2020,2026),subjects,"都立中"));
  push("白鷗",range(2020,2023),["適性検査Ⅰ","適性検査Ⅲ"],"都立中");push("白鷗",range(2024,2026),["適性検査Ⅲ"],"都立中");
+ const prefectures=["北海道","青森県","岩手県","宮城県","秋田県","山形県","福島県","茨城県","栃木県","群馬県","埼玉県","千葉県","神奈川県","新潟県","富山県","石川県","福井県","山梨県","長野県","岐阜県","静岡県","愛知県","三重県","滋賀県","京都府","大阪府","兵庫県","奈良県","和歌山県","鳥取県","島根県","岡山県","広島県","山口県","徳島県","香川県","愛媛県","高知県","福岡県","佐賀県","長崎県","熊本県","大分県","宮崎県","鹿児島県","沖縄県"];
+ prefectures.forEach(prefecture=>push(prefecture,[2025],["理科","社会"],"公立高校"));
  return list;
 }
 const CAMPUS={studyshare:"StudyShare",ena_takadanobaba:"ena高田馬場"};
