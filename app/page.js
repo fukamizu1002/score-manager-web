@@ -384,12 +384,6 @@ function Dash({ students, exams, scores }) {
           <div className="stat">{x[1]}</div>
         </div>
       ))}
-      <div className="card s12">
-        <h3>採点日の管理</h3>
-        <p className="muted">
-          結果入力では、過去問を採点した日だけを記録します。以前に登録した得点や提出日の情報は削除されていません。
-        </p>
-      </div>
     </div>
   );
 }
