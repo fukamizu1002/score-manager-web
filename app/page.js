@@ -179,6 +179,10 @@ const examYear = (exam) =>
   (exam?.category || exam?.type) === "公立高校"
     ? `${exam.year}年度`
     : eraYear(exam?.year);
+const analysisSubject = (subject) =>
+  String(subject || "").startsWith("適性検査Ⅱ")
+    ? "適性検査Ⅱ"
+    : subject || "";
 function F({ l, c = "f12", children }) {
   return (
     <div className={c}>
@@ -1095,7 +1099,7 @@ function Detail({ students, exams, scores, sid, setSid, inter, setInter }) {
         (!fromDate || r.date >= fromDate) &&
         (!toDate || r.date <= toDate) &&
         (!categoryFilter || category === categoryFilter) &&
-        (!subjectFilter || exam?.subject === subjectFilter)
+        (!subjectFilter || analysisSubject(exam?.subject) === subjectFilter)
       );
     })
     .slice()
@@ -1131,18 +1135,13 @@ function Detail({ students, exams, scores, sid, setSid, inter, setInter }) {
           categoryRows.forEach((r) => {
             let e = exams.find((x) => x.id === r.examId);
             if (e)
-              (m[e.subject] ??= []).push(
+              (m[analysisSubject(e.subject)] ??= []).push(
                 (Number(r.score) / Number(e.max)) * 100,
               );
           });
           const stats = Object.entries(m).map(([subject, vals]) => {
             const recent3 = vals.slice(-3),
               recent5 = vals.slice(-5),
-              split = Math.floor(vals.length / 2),
-              firstHalf = vals.slice(0, split),
-              secondHalf = vals.slice(split),
-              firstHalfAvg = avg(firstHalf),
-              secondHalfAvg = avg(secondHalf),
               subjectTarget = targets.subjects?.[subject];
             return {
               subject,
@@ -1158,19 +1157,11 @@ function Detail({ students, exams, scores, sid, setSid, inter, setInter }) {
                 subjectTarget != null
                   ? avg(recent3) - Number(subjectTarget)
                   : null,
-              firstHalfAvg: firstHalf.length ? firstHalfAvg : null,
-              secondHalfAvg: secondHalf.length ? secondHalfAvg : null,
-              halfGap:
-                firstHalf.length && secondHalf.length
-                  ? secondHalfAvg - firstHalfAvg
-                  : null,
             };
           });
-          const allRates = categoryRows.map((r) => {
-              const e = exams.find((x) => x.id === r.examId);
-              return e ? (Number(r.score) / Number(e.max)) * 100 : 0;
-            }),
-            recentAvg = avg(allRates.slice(-3)),
+          const recentAvg = stats.length
+              ? avg(stats.map((x) => x.recentAvg))
+              : 0,
             overall =
               targets.overall != null && targets.overall !== ""
                 ? Number(targets.overall)
@@ -1323,7 +1314,7 @@ function Detail({ students, exams, scores, sid, setSid, inter, setInter }) {
               <div className="categoryTitle">
                 <h2>{category} 分析</h2>
                 <span>
-                  総合目標 {d.overall != null ? pct(d.overall) : "—"} / 直近3件{" "}
+                  総合目標 {d.overall != null ? pct(d.overall) : "—"} / 科目均等平均{" "}
                   {d.rows.length ? pct(d.recentAvg) : "—"} / 差{" "}
                   {d.gap != null
                     ? `${d.gap >= 0 ? "+" : ""}${d.gap.toFixed(1)}pt`
@@ -1369,26 +1360,6 @@ function Detail({ students, exams, scores, sid, setSid, inter, setInter }) {
                         <dt>実施回数</dt>
                         <dd>{x.count}回</dd>
                       </div>
-                      <div>
-                        <dt>前半平均</dt>
-                        <dd>
-                          {x.firstHalfAvg != null ? pct(x.firstHalfAvg) : "—"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>後半平均</dt>
-                        <dd>
-                          {x.secondHalfAvg != null ? pct(x.secondHalfAvg) : "—"}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt>前後半差</dt>
-                        <dd>
-                          {x.halfGap != null
-                            ? `${x.halfGap >= 0 ? "+" : ""}${x.halfGap.toFixed(1)}pt`
-                            : "—"}
-                        </dd>
-                      </div>
                     </dl>
                   </div>
                 ))}
@@ -1398,14 +1369,33 @@ function Detail({ students, exams, scores, sid, setSid, inter, setInter }) {
                   {category}の得点データはまだありません。
                 </div>
               )}
-              <div className="card">
-                <h3>{category} 得点率推移</h3>
-                <Trend
-                  rows={d.rows}
-                  exams={exams}
-                  target={d.overall}
-                  subjectTargets={d.targets.subjects || {}}
-                />
+              {["私立中", "都立中"].includes(category) && !subjectFilter && (
+                <div className="card">
+                  <h3>{category} 総合得点率（科目均等平均）推移</h3>
+                  <BalancedTrend
+                    rows={d.rows}
+                    exams={exams}
+                    target={d.overall}
+                  />
+                  <p className="chartLegend">
+                    各採点日までの科目別平均を同じ重みで平均します。未実施科目がある時点は暫定値です。
+                  </p>
+                </div>
+              )}
+              <div className="grid">
+                {d.stats.map((x) => (
+                  <div className="card s6" key={`${category}-${x.subject}-chart`}>
+                    <h3>{x.subject} 得点率推移</h3>
+                    <Trend
+                      rows={d.rows.filter((r) => {
+                        const e = exams.find((exam) => exam.id === r.examId);
+                        return analysisSubject(e?.subject) === x.subject;
+                      })}
+                      exams={exams}
+                      target={x.subjectTarget}
+                    />
+                  </div>
+                ))}
               </div>
             </div>
           );
@@ -1492,7 +1482,7 @@ function Detail({ students, exams, scores, sid, setSid, inter, setInter }) {
                   {d.overall != null ? pct(d.overall) : "未登録"}
                 </p>
                 <p>
-                  <b>{category} 直近3件平均：</b>
+                  <b>{category} 科目均等平均：</b>
                   {d.rows.length ? pct(d.recentAvg) : "データなし"}
                 </p>
                 <p>
@@ -1512,16 +1502,6 @@ function Detail({ students, exams, scores, sid, setSid, inter, setInter }) {
                       ? `${x.targetGap >= 0 ? "+" : ""}${x.targetGap.toFixed(1)}pt`
                       : "算出不可"}{" "}
                     / 最高 {pct(x.high)} / 最低 {pct(x.low)} / 実施 {x.count}回
-                    / 前半平均{" "}
-                    {x.firstHalfAvg != null ? pct(x.firstHalfAvg) : "算出不可"}{" "}
-                    / 後半平均{" "}
-                    {x.secondHalfAvg != null
-                      ? pct(x.secondHalfAvg)
-                      : "算出不可"}{" "}
-                    / 前後半差{" "}
-                    {x.halfGap != null
-                      ? `${x.halfGap >= 0 ? "+" : ""}${x.halfGap.toFixed(1)}pt`
-                      : "算出不可"}
                   </p>
                 ))}
                 {!d.stats.length && <p>得点データなし</p>}
@@ -1533,22 +1513,18 @@ function Detail({ students, exams, scores, sid, setSid, inter, setInter }) {
     </>
   );
 }
-function Trend({ rows, exams, target, subjectTargets }) {
+function Trend({ rows, exams, target }) {
   const w = 900,
     h = 300,
     p = 42,
-    colors = ["#c53c3c", "#6f42c1", "#00856a", "#d97706", "#c026d3"],
     pts = rows.map((r, i) => {
       let e = exams.find((x) => x.id === r.examId),
         rate = e ? (Number(r.score) / Number(e.max)) * 100 : 0,
         x =
           rows.length <= 1 ? w / 2 : p + (i * (w - p * 2)) / (rows.length - 1),
         y = h - p - (rate / 100) * (h - p * 2);
-      return { x, y, rate, subject: e?.subject || "" };
-    }),
-    targets = Object.entries(subjectTargets || {}).filter(
-      ([, v]) => v !== "" && v != null,
-    );
+      return { x, y, rate, label: `${r.date || "日付なし"} ${e?.subject || ""}` };
+    });
   return (
     <>
       <svg viewBox={`0 0 ${w} ${h}`} className="chart">
@@ -1579,29 +1555,10 @@ function Trend({ rows, exams, target, subjectTargets }) {
               y={h - p - (Number(target) / 100) * (h - p * 2) - 5}
               fontSize="11"
             >
-              総合目標 {target}%
+              科目目標 {target}%
             </text>
           </g>
         )}
-        {targets.map(([subject, value], i) => {
-          const y = h - p - (Number(value) / 100) * (h - p * 2),
-            color = colors[i % colors.length];
-          return (
-            <g key={subject}>
-              <line
-                x1={p}
-                y1={y}
-                x2={w - p}
-                y2={y}
-                stroke={color}
-                strokeDasharray="3 5"
-              />
-              <text x={w - p - 100} y={y - 4} fontSize="10" fill={color}>
-                {subject} {value}%
-              </text>
-            </g>
-          );
-        })}
         {pts.length > 1 && (
           <polyline
             fill="none"
@@ -1614,14 +1571,102 @@ function Trend({ rows, exams, target, subjectTargets }) {
           <g key={i}>
             <circle cx={x.x} cy={x.y} r="5" fill="#2f6fed" />
             <title>
-              {x.subject} {x.rate.toFixed(1)}%
+              {x.label} {x.rate.toFixed(1)}%
             </title>
           </g>
         ))}
       </svg>
       <p className="chartLegend">
-        青線：得点率推移　黒破線：総合目標　色付き点線：科目別目標
+        青線：科目の得点率推移　黒破線：科目別目標
       </p>
     </>
+  );
+}
+
+function BalancedTrend({ rows, exams, target }) {
+  const w = 900,
+    h = 300,
+    p = 42,
+    byDate = new Map();
+  rows.forEach((r) => {
+    const e = exams.find((x) => x.id === r.examId);
+    if (!e) return;
+    const rate = (Number(r.score) / Number(e.max)) * 100;
+    if (!Number.isFinite(rate)) return;
+    const date = r.date || "日付なし";
+    if (!byDate.has(date)) byDate.set(date, []);
+    byDate.get(date).push({ subject: analysisSubject(e.subject), rate });
+  });
+  const subjectRates = {},
+    dates = [...byDate.keys()].sort(),
+    values = dates.map((date) => {
+      byDate.get(date).forEach(({ subject, rate }) => {
+        (subjectRates[subject] ??= []).push(rate);
+      });
+      const subjectAverages = Object.values(subjectRates).map(avg);
+      return {
+        date,
+        rate: avg(subjectAverages),
+        subjectCount: subjectAverages.length,
+      };
+    }),
+    pts = values.map((v, i) => ({
+      ...v,
+      x:
+        values.length <= 1
+          ? w / 2
+          : p + (i * (w - p * 2)) / (values.length - 1),
+      y: h - p - (v.rate / 100) * (h - p * 2),
+    }));
+  return (
+    <svg viewBox={`0 0 ${w} ${h}`} className="chart">
+      {[0, 20, 40, 60, 80, 100].map((v) => {
+        const y = h - p - (v / 100) * (h - p * 2);
+        return (
+          <g key={v}>
+            <line x1={p} y1={y} x2={w - p} y2={y} stroke="#ddd" />
+            <text x="4" y={y + 4} fontSize="12">
+              {v}%
+            </text>
+          </g>
+        );
+      })}
+      {target != null && (
+        <g>
+          <line
+            x1={p}
+            y1={h - p - (Number(target) / 100) * (h - p * 2)}
+            x2={w - p}
+            y2={h - p - (Number(target) / 100) * (h - p * 2)}
+            stroke="#172033"
+            strokeWidth="2"
+            strokeDasharray="9 5"
+          />
+          <text
+            x={p + 5}
+            y={h - p - (Number(target) / 100) * (h - p * 2) - 5}
+            fontSize="11"
+          >
+            総合目標 {target}%
+          </text>
+        </g>
+      )}
+      {pts.length > 1 && (
+        <polyline
+          fill="none"
+          stroke="#00856a"
+          strokeWidth="3"
+          points={pts.map((x) => `${x.x},${x.y}`).join(" ")}
+        />
+      )}
+      {pts.map((x) => (
+        <g key={x.date}>
+          <circle cx={x.x} cy={x.y} r="5" fill="#00856a" />
+          <title>
+            {x.date} 総合 {x.rate.toFixed(1)}%（{x.subjectCount}科目）
+          </title>
+        </g>
+      ))}
+    </svg>
   );
 }
