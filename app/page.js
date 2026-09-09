@@ -1369,7 +1369,7 @@ function Detail({ students, exams, scores, sid, setSid, inter, setInter }) {
                   {category}の得点データはまだありません。
                 </div>
               )}
-              {["私立中", "都立中"].includes(category) && !subjectFilter && (
+              {!subjectFilter && (
                 <div className="card">
                   <h3>{category} 総合得点率（科目均等平均）推移</h3>
                   <BalancedTrend
