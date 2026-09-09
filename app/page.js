@@ -248,7 +248,6 @@ function Login() {
     <div className="login">
       <div className="card">
         <h1>過去問成績管理アプリ</h1>
-        <p className="muted">採点結果の記録・分析・面談資料作成</p>
         <F l="メールアドレス">
           <input value={e} onChange={(x) => setE(x.target.value)} />
         </F>
