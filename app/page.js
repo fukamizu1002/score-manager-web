@@ -270,6 +270,14 @@ function Login() {
 }
 function App({ profile }) {
   const cid = profile.campusId;
+  const campusName =
+    { studyshare: "StudyShare", ena_takadanobaba: "ena高田馬場" }[cid] ||
+    profile.campusName ||
+    cid;
+  const appTitle =
+    cid === "studyshare"
+      ? `${campusName}の過去問管理アプリ`
+      : `${campusName}の過去問成績管理`;
   const [tab, setTab] = useState("dash"),
     [students, setStudents] = useState([]),
     [exams, setExams] = useState([]),
@@ -312,7 +320,7 @@ function App({ profile }) {
       <header className="header">
         <div className="headerInner">
           <div>
-            <b>過去問成績管理アプリ</b>
+            <b>{appTitle}</b>
             <div className="muted">採点結果・得点推移・面談資料</div>
           </div>
           <div className="nav adminOnly">
