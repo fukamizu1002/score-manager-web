@@ -356,8 +356,24 @@ function App({ profile }) {
     };
   }, [cid]);
   useEffect(() => {
-    if (!sid && students[0]) setSid(students[0].id);
+    const available = students.filter((student) => !student.deletedAt),
+      first = available[0];
+    if (!available.some((student) => student.id === sid))
+      setSid(first?.id || "");
   }, [students, sid]);
+  const activeStudents = students.filter(
+      (student) => !student.deletedAt && !student.archivedAt,
+    ),
+    reportStudents = students.filter((student) => !student.deletedAt),
+    activeExams = exams.filter((exam) => !exam.deletedAt),
+    activeScores = scores.filter(
+      (score) =>
+        reportStudents.some((student) => student.id === score.studentId) &&
+        activeExams.some((exam) => exam.id === score.examId),
+    ),
+    currentScores = activeScores.filter((score) =>
+      activeStudents.some((student) => student.id === score.studentId),
+    );
   return (
     <div className={inter ? "interview" : ""}>
       <header className="header">
@@ -374,6 +390,7 @@ function App({ profile }) {
               ["exams", "過去問"],
               ["detail", "面談・分析"],
               ["ranking", "校舎ランキング"],
+              ["trash", "ごみ箱"],
             ].map(([k, l]) => (
               <button
                 className={tab === k ? "active" : ""}
@@ -392,20 +409,29 @@ function App({ profile }) {
       </header>
       <main className="container">
         {tab === "dash" && (
-          <Dash students={students} exams={exams} scores={scores} />
+          <Dash
+            students={activeStudents}
+            exams={activeExams}
+            scores={currentScores}
+          />
         )}
         {tab === "students" && (
-          <Students cid={cid} data={students} exams={exams} />
+          <Students cid={cid} data={reportStudents} exams={activeExams} />
         )}
-        {tab === "exams" && <Exams cid={cid} data={exams} />}
+        {tab === "exams" && <Exams cid={cid} data={activeExams} />}
         {tab === "entry" && (
-          <Entry cid={cid} students={students} exams={exams} scores={scores} />
+          <Entry
+            cid={cid}
+            students={activeStudents}
+            exams={activeExams}
+            scores={currentScores}
+          />
         )}
         {tab === "detail" && (
           <Detail
-            students={students}
-            exams={exams}
-            scores={scores}
+            students={reportStudents}
+            exams={activeExams}
+            scores={activeScores}
             sid={sid}
             setSid={setSid}
             inter={inter}
@@ -415,8 +441,16 @@ function App({ profile }) {
         {tab === "ranking" && (
           <Ranking
             campusName={campusName}
-            students={students}
-            exams={exams}
+            students={activeStudents}
+            exams={activeExams}
+            scores={currentScores}
+          />
+        )}
+        {tab === "trash" && (
+          <Trash
+            cid={cid}
+            students={students.filter((student) => student.deletedAt)}
+            exams={exams.filter((exam) => exam.deletedAt)}
             scores={scores}
           />
         )}
@@ -426,10 +460,73 @@ function App({ profile }) {
 }
 function Dash({ students, exams, scores }) {
   const dates = scores
-    .map((x) => x.date)
-    .filter(Boolean)
-    .sort();
-  const latest = dates.length ? dates[dates.length - 1] : "—";
+      .map((x) => x.date)
+      .filter(Boolean)
+      .sort(),
+    latest = dates.length ? dates[dates.length - 1] : "—",
+    attention = students
+      .map((student) => {
+        const studentScores = scores
+            .filter((score) => score.studentId === student.id)
+            .slice()
+            .sort((a, b) =>
+              String(a.date || "").localeCompare(String(b.date || "")),
+            ),
+          reasons = [];
+        if (!studentScores.length) reasons.push("採点結果なし");
+        if (studentScores.length > 0 && studentScores.length < 3)
+          reasons.push("採点数が3回未満");
+        const latestScore = studentScores[studentScores.length - 1];
+        if (latestScore?.date) {
+          const inactiveDays = Math.floor(
+            (Date.now() - new Date(`${latestScore.date}T00:00:00`).getTime()) /
+              86400000,
+          );
+          if (inactiveDays >= 14) reasons.push(`${inactiveDays}日間採点なし`);
+          const exam = exams.find((x) => x.id === latestScore.examId),
+            category = exam?.category || exam?.type,
+            subject = analysisSubject(exam?.subject),
+            target = student.categoryTargets?.[category]?.subjects?.[subject],
+            rate = exam
+              ? (Number(latestScore.score) / Number(exam.max)) * 100
+              : null;
+          if (target != null && rate != null && rate < Number(target))
+            reasons.push(
+              `直近の${subject}が目標より${(Number(target) - rate).toFixed(1)}pt低い`,
+            );
+        }
+        if (studentScores.length >= 6) {
+          const rates = studentScores.map((score) => {
+              const exam = exams.find((x) => x.id === score.examId);
+              return exam
+                ? (Number(score.score) / Number(exam.max)) * 100
+                : 0;
+            }),
+            previous = avg(rates.slice(-6, -3)),
+            recent = avg(rates.slice(-3));
+          if (recent - previous >= 10)
+            reasons.push(
+              `直近3回がその前より${(recent - previous).toFixed(1)}pt上昇`,
+            );
+        }
+        const subjectMap = {};
+        studentScores.forEach((score) => {
+          const exam = exams.find((x) => x.id === score.examId);
+          if (!exam) return;
+          (subjectMap[analysisSubject(exam.subject)] ??= []).push(
+            (Number(score.score) / Number(exam.max)) * 100,
+          );
+        });
+        const subjectAverages = Object.values(subjectMap).map(avg);
+        if (
+          subjectAverages.length >= 2 &&
+          Math.max(...subjectAverages) - Math.min(...subjectAverages) >= 20
+        )
+          reasons.push("科目平均の差が20pt以上");
+        return { student, reasons, latestDate: latestScore?.date || "—" };
+      })
+      .filter((row) => row.reasons.length)
+      .sort((a, b) => b.reasons.length - a.reasons.length);
   return (
     <div className="grid">
       {[
@@ -443,12 +540,45 @@ function Dash({ students, exams, scores }) {
           <div className="stat">{x[1]}</div>
         </div>
       ))}
+      <div className="card s12 attentionCard">
+        <h2>注目生徒</h2>
+        <p className="muted">
+          目標未達、14日以上採点なし、採点数不足、成績上昇、科目差を自動抽出しています。
+        </p>
+        {!attention.length ? (
+          <p>現在、確認が必要な生徒はいません。</p>
+        ) : (
+          <div className="table">
+            <table>
+              <thead>
+                <tr>
+                  <th>生徒</th>
+                  <th>学年</th>
+                  <th>最新採点日</th>
+                  <th>注目理由</th>
+                </tr>
+              </thead>
+              <tbody>
+                {attention.map(({ student, reasons, latestDate }) => (
+                  <tr key={student.id}>
+                    <td><b>{student.name}</b></td>
+                    <td>{student.grade}</td>
+                    <td>{latestDate}</td>
+                    <td>{reasons.join("／")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
 function Students({ cid, data, exams }) {
   const empty = {
     name: "",
+    nickname: "",
     grade: "中3",
     schoolName: "",
     targetSchool: "",
@@ -499,6 +629,7 @@ function Students({ cid, data, exams }) {
     setEditingId(s.id);
     setF({
       name: s.name || "",
+      nickname: s.nickname || "",
       grade: s.grade || "中3",
       schoolName: s.schoolName || "",
       targetSchool: s.targetSchool || "",
@@ -528,6 +659,25 @@ function Students({ cid, data, exams }) {
         },
       },
     });
+  const archiveCurrentStudents = async () => {
+    const current = data.filter((student) => !student.archivedAt);
+    if (!current.length) return;
+    if (
+      !confirm(
+        `在籍中の${current.length}人を卒業生へ移しますか？得点や面談資料は引き続き確認できます。`,
+      )
+    )
+      return;
+    for (let i = 0; i < current.length; i += 400) {
+      const batch = writeBatch(db);
+      current.slice(i, i + 400).forEach((student) =>
+        batch.update(doc(db, "campuses", cid, "students", student.id), {
+          archivedAt: new Date().toISOString(),
+        }),
+      );
+      await batch.commit();
+    }
+  };
   return (
     <div className="grid">
       <div className="card s6">
@@ -538,6 +688,13 @@ function Students({ cid, data, exams }) {
               required
               value={f.name}
               onChange={(e) => setF({ ...f, name: e.target.value })}
+            />
+          </F>
+          <F l="ランキング用ニックネーム（任意）">
+            <input
+              value={f.nickname}
+              onChange={(e) => setF({ ...f, nickname: e.target.value })}
+              placeholder="未登録の場合は「匿名」と表示"
             />
           </F>
           <F l="学年" c="f6">
@@ -620,13 +777,19 @@ function Students({ cid, data, exams }) {
         </form>
       </div>
       <div className="card s6">
-        <h2>生徒一覧</h2>
+        <div className="listHead">
+          <h2>生徒一覧</h2>
+          <button className="btn ghost" onClick={archiveCurrentStudents}>
+            年度更新：在籍生を卒業生へ
+          </button>
+        </div>
         <div className="table">
           <table>
             <thead>
               <tr>
                 <th>生徒</th>
                 <th>学年</th>
+                <th>状態</th>
                 <th>第一志望</th>
                 <th>区分別総合目標</th>
                 <th>操作</th>
@@ -637,6 +800,7 @@ function Students({ cid, data, exams }) {
                 <tr key={s.id}>
                   <td>{s.name}</td>
                   <td>{s.grade}</td>
+                  <td>{s.archivedAt ? "卒業生" : "在籍"}</td>
                   <td>{s.targetSchool || "—"}</td>
                   <td>
                     {categoriesForGrade(s.grade).map((c) => (
@@ -655,13 +819,29 @@ function Students({ cid, data, exams }) {
                       編集
                     </button>{" "}
                     <button
-                      className="btn danger"
+                      className="btn ghost"
                       onClick={() =>
-                        confirm("削除しますか？") &&
-                        deleteDoc(doc(db, "campuses", cid, "students", s.id))
+                        updateDoc(doc(db, "campuses", cid, "students", s.id), {
+                          archivedAt: s.archivedAt
+                            ? null
+                            : new Date().toISOString(),
+                        })
                       }
                     >
-                      削除
+                      {s.archivedAt ? "在籍へ戻す" : "卒業生へ"}
+                    </button>{" "}
+                    <button
+                      className="btn danger"
+                      onClick={() =>
+                        confirm(
+                          "生徒をごみ箱へ移動しますか？30日間は復元できます。",
+                        ) &&
+                        updateDoc(doc(db, "campuses", cid, "students", s.id), {
+                          deletedAt: new Date().toISOString(),
+                        })
+                      }
+                    >
+                      ごみ箱へ
                     </button>
                   </td>
                 </tr>
@@ -870,11 +1050,15 @@ function Exams({ cid, data }) {
                     <button
                       className="btn danger"
                       onClick={() =>
-                        confirm("削除しますか？") &&
-                        deleteDoc(doc(db, "campuses", cid, "exams", e.id))
+                        confirm(
+                          "過去問をごみ箱へ移動しますか？30日間は復元できます。",
+                        ) &&
+                        updateDoc(doc(db, "campuses", cid, "exams", e.id), {
+                          deletedAt: new Date().toISOString(),
+                        })
                       }
                     >
-                      削除
+                      ごみ箱へ
                     </button>
                   </td>
                 </tr>
@@ -886,6 +1070,110 @@ function Exams({ cid, data }) {
     </div>
   );
 }
+
+function Trash({ cid, students, exams, scores }) {
+  const daysRemaining = (deletedAt) => {
+    const deleted = new Date(deletedAt).getTime();
+    if (!Number.isFinite(deleted)) return 30;
+    return Math.max(0, 30 - Math.floor((Date.now() - deleted) / 86400000));
+  };
+  const restore = (kind, id) =>
+    updateDoc(doc(db, "campuses", cid, kind, id), { deletedAt: null });
+  const removePermanently = async (kind, item) => {
+    if (daysRemaining(item.deletedAt) > 0) return;
+    if (
+      !confirm(
+        "完全に削除すると復元できません。関連する採点結果も削除しますか？",
+      )
+    )
+      return;
+    const related = scores.filter((score) =>
+      kind === "students"
+        ? score.studentId === item.id
+        : score.examId === item.id,
+    );
+    for (let i = 0; i < related.length; i += 400) {
+      const batch = writeBatch(db);
+      related.slice(i, i + 400).forEach((score) =>
+        batch.delete(doc(db, "campuses", cid, "scores", score.id)),
+      );
+      await batch.commit();
+    }
+    await deleteDoc(doc(db, "campuses", cid, kind, item.id));
+  };
+  const TrashTable = ({ kind, items }) => (
+    <div className="card s12">
+      <h2>{kind === "students" ? "削除した生徒" : "削除した過去問"}</h2>
+      {!items.length ? (
+        <p className="muted">ごみ箱は空です。</p>
+      ) : (
+        <div className="table">
+          <table>
+            <thead>
+              <tr>
+                <th>内容</th>
+                <th>削除日</th>
+                <th>復元可能期間</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((item) => {
+                const remaining = daysRemaining(item.deletedAt);
+                return (
+                  <tr key={item.id}>
+                    <td>
+                      {kind === "students"
+                        ? `${item.grade || ""} ${item.name || ""}`
+                        : `${item.school || ""} ${examYear(item)} ${item.subject || ""}`}
+                    </td>
+                    <td>{String(item.deletedAt || "").slice(0, 10) || "—"}</td>
+                    <td>
+                      {remaining > 0
+                        ? `あと${remaining}日`
+                        : "復元期限を過ぎています"}
+                    </td>
+                    <td>
+                      {remaining > 0 && (
+                        <button
+                          className="btn ghost"
+                          onClick={() => restore(kind, item.id)}
+                        >
+                          復元
+                        </button>
+                      )}{" "}
+                      {remaining === 0 && (
+                        <button
+                          className="btn danger"
+                          onClick={() => removePermanently(kind, item)}
+                        >
+                          完全に削除
+                        </button>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+  return (
+    <div className="grid">
+      <div className="card s12">
+        <h2>ごみ箱</h2>
+        <p className="muted">
+          削除した生徒・過去問は30日間復元できます。期限後は「完全に削除」を選べます。
+        </p>
+      </div>
+      <TrashTable kind="students" items={students} />
+      <TrashTable kind="exams" items={exams} />
+    </div>
+  );
+}
+
 function Entry({ cid, students, exams, scores }) {
   const blank = {
     date: today(),
@@ -899,7 +1187,8 @@ function Entry({ cid, students, exams, scores }) {
     teacherComment: "",
   };
   const [f, setF] = useState(blank),
-    [editingId, setEditingId] = useState(null);
+    [editingId, setEditingId] = useState(null),
+    [warning, setWarning] = useState("");
   const examCategory = (e) => e.category || e.type || "";
   const gradeSubjects = f.grade
     ? [
@@ -913,6 +1202,7 @@ function Entry({ cid, students, exams, scores }) {
   const allowedCategories = categoriesForGrade(f.grade);
   const filteredExams = exams.filter(
     (e) =>
+      (!f.grade || CATEGORY_CONFIG[examCategory(e)]?.grade === f.grade) &&
       (!f.category || examCategory(e) === f.category) &&
       (!f.subject || e.subject === f.subject),
   );
@@ -923,7 +1213,37 @@ function Entry({ cid, students, exams, scores }) {
     ex = exams.find((e) => e.id === f.examId);
   const save = async (e) => {
     e.preventDefault();
-    if (!ex) return;
+    setWarning("");
+    if (!f.date) {
+      setWarning("採点日を入力してください。");
+      return;
+    }
+    if (!ex) {
+      setWarning("過去問を選択してください。");
+      return;
+    }
+    const student = students.find((x) => x.id === f.studentId),
+      expectedGrade = CATEGORY_CONFIG[examCategory(ex)]?.grade;
+    if (!student || (expectedGrade && student.grade !== expectedGrade)) {
+      setWarning("生徒の学年と過去問の種類が一致していません。");
+      return;
+    }
+    if (Number(f.score) < 0 || Number(f.score) > Number(ex.max)) {
+      setWarning(`得点は0～${ex.max}点で入力してください。`);
+      return;
+    }
+    const duplicate = scores.find(
+      (r) =>
+        r.studentId === f.studentId &&
+        r.examId === f.examId &&
+        r.id !== editingId,
+    );
+    if (duplicate && !editingId) {
+      setWarning(
+        `同じ生徒・同じ過去問の結果が既に登録されています（採点日：${duplicate.date || "未入力"}）。登録済み結果の「編集」を使用してください。`,
+      );
+      return;
+    }
     const value = {
       ...f,
       score: Number(f.score),
@@ -937,6 +1257,7 @@ function Entry({ cid, students, exams, scores }) {
       });
     setF(blank);
     setEditingId(null);
+    setWarning("");
   };
   const edit = (r) => {
     const e = exams.find((x) => x.id === r.examId) || {},
@@ -960,6 +1281,7 @@ function Entry({ cid, students, exams, scores }) {
       <div className="card">
         <h2>{editingId ? "結果を編集" : "結果入力"}</h2>
         <form className="form" onSubmit={save}>
+          {warning && <div className="formWarning f12">{warning}</div>}
           <F l="採点日" c="f3">
             <input
               type="date"
@@ -1088,6 +1410,7 @@ function Entry({ cid, students, exams, scores }) {
           )}
         </form>
       </div>
+      <BatchEntry cid={cid} students={students} exams={exams} scores={scores} />
       <div className="card" style={{ marginTop: 14 }}>
         <h3>登録済み結果</h3>
         <div className="table">
@@ -1133,6 +1456,241 @@ function Entry({ cid, students, exams, scores }) {
   );
 }
 
+function BatchEntry({ cid, students, exams, scores }) {
+  const blank = {
+    date: today(),
+    grade: "",
+    category: "",
+    subject: "",
+    year: "",
+    examId: "",
+  };
+  const [f, setF] = useState(blank),
+    [values, setValues] = useState({}),
+    [message, setMessage] = useState("");
+  const examCategory = (exam) => exam.category || exam.type || "";
+  const gradeSubjects = f.grade
+    ? [
+        ...new Set(
+          categoriesForGrade(f.grade).flatMap(
+            (category) => CATEGORY_CONFIG[category].subjects,
+          ),
+        ),
+      ]
+    : [];
+  const filteredExams = exams.filter(
+      (exam) =>
+        (!f.grade ||
+          CATEGORY_CONFIG[examCategory(exam)]?.grade === f.grade) &&
+        (!f.category || examCategory(exam) === f.category) &&
+        (!f.subject || exam.subject === f.subject),
+    ),
+    years = [...new Set(filteredExams.map((exam) => String(exam.year)))].sort(
+      (a, b) => Number(b) - Number(a),
+    ),
+    choices = filteredExams.filter(
+      (exam) => !f.year || String(exam.year) === f.year,
+    ),
+    selectedExam = exams.find((exam) => exam.id === f.examId),
+    targetStudents = students.filter(
+      (student) => !f.grade || student.grade === f.grade,
+    );
+  useEffect(() => {
+    if (!f.examId) {
+      setValues({});
+      return;
+    }
+    setValues(
+      Object.fromEntries(
+        targetStudents.map((student) => {
+          const existing = scores.find(
+            (score) =>
+              score.studentId === student.id && score.examId === f.examId,
+          );
+          return [student.id, existing?.score ?? ""];
+        }),
+      ),
+    );
+  }, [f.examId, f.grade, scores, students]);
+  const save = async () => {
+    setMessage("");
+    if (!f.date || !selectedExam) {
+      setMessage("採点日と過去問を選択してください。");
+      return;
+    }
+    const entries = targetStudents
+      .map((student) => ({ student, value: values[student.id] }))
+      .filter(({ value }) => value !== "" && value != null);
+    if (!entries.length) {
+      setMessage("少なくとも1人の得点を入力してください。");
+      return;
+    }
+    if (
+      entries.some(
+        ({ value }) =>
+          Number(value) < 0 || Number(value) > Number(selectedExam.max),
+      )
+    ) {
+      setMessage(`得点は0～${selectedExam.max}点で入力してください。`);
+      return;
+    }
+    const batch = writeBatch(db);
+    entries.forEach(({ student, value }) => {
+      const existing = scores.find(
+        (score) =>
+          score.studentId === student.id && score.examId === selectedExam.id,
+      );
+      const payload = {
+        date: f.date,
+        grade: student.grade,
+        studentId: student.id,
+        category: examCategory(selectedExam),
+        subject: selectedExam.subject,
+        year: selectedExam.year,
+        examId: selectedExam.id,
+        score: Number(value),
+      };
+      if (existing)
+        batch.update(doc(db, "campuses", cid, "scores", existing.id), payload);
+      else
+        batch.set(doc(collection(db, "campuses", cid, "scores")), {
+          ...payload,
+          teacherComment: "",
+          createdAt: serverTimestamp(),
+        });
+    });
+    await batch.commit();
+    setMessage(
+      `${entries.length}人分を保存しました。登録済みの結果は重複させず更新しています。`,
+    );
+  };
+  return (
+    <div className="card" style={{ marginTop: 14 }}>
+      <h2>複数生徒の点数を一括入力</h2>
+      <p className="muted">
+        過去問と採点日を一度選び、生徒ごとの得点をまとめて登録できます。
+      </p>
+      <div className="form">
+        <F l="採点日" c="f3">
+          <input
+            type="date"
+            value={f.date}
+            onChange={(e) => setF({ ...f, date: e.target.value })}
+          />
+        </F>
+        <F l="学年" c="f3">
+          <select
+            value={f.grade}
+            onChange={(e) =>
+              setF({
+                ...f,
+                grade: e.target.value,
+                category: "",
+                subject: "",
+                year: "",
+                examId: "",
+              })
+            }
+          >
+            <option value="">選択</option>
+            {GRADES.map((x) => <option key={x}>{x}</option>)}
+          </select>
+        </F>
+        <F l="過去問の種類" c="f3">
+          <select
+            value={f.category}
+            onChange={(e) =>
+              setF({
+                ...f,
+                category: e.target.value,
+                subject: "",
+                year: "",
+                examId: "",
+              })
+            }
+          >
+            <option value="">選択</option>
+            {categoriesForGrade(f.grade).map((x) => <option key={x}>{x}</option>)}
+          </select>
+        </F>
+        <F l="科目" c="f3">
+          <select
+            value={f.subject}
+            onChange={(e) =>
+              setF({ ...f, subject: e.target.value, year: "", examId: "" })
+            }
+          >
+            <option value="">選択</option>
+            {gradeSubjects.map((x) => <option key={x}>{x}</option>)}
+          </select>
+        </F>
+        <F l="年度" c="f3">
+          <select
+            value={f.year}
+            onChange={(e) => setF({ ...f, year: e.target.value, examId: "" })}
+          >
+            <option value="">選択</option>
+            {years.map((x) => (
+              <option key={x} value={x}>{yearWithEra(x)}</option>
+            ))}
+          </select>
+        </F>
+        <F l="過去問" c="f6">
+          <select
+            value={f.examId}
+            onChange={(e) => setF({ ...f, examId: e.target.value })}
+          >
+            <option value="">選択</option>
+            {choices.map((exam) => (
+              <option key={exam.id} value={exam.id}>
+                {exam.school} / {examYear(exam)} / {exam.subject}
+              </option>
+            ))}
+          </select>
+        </F>
+      </div>
+      {selectedExam && (
+        <div className="batchScores">
+          <div className="batchHead">
+            <b>{selectedExam.school}・{examYear(selectedExam)}・{selectedExam.subject}</b>
+            <span>{selectedExam.max}点満点</span>
+          </div>
+          {targetStudents.map((student) => {
+            const existing = scores.find(
+              (score) =>
+                score.studentId === student.id &&
+                score.examId === selectedExam.id,
+            );
+            return (
+              <label className="batchRow" key={student.id}>
+                <span>{student.name}</span>
+                <input
+                  type="number"
+                  min="0"
+                  max={selectedExam.max}
+                  value={values[student.id] ?? ""}
+                  onChange={(e) =>
+                    setValues({ ...values, [student.id]: e.target.value })
+                  }
+                  placeholder="未入力"
+                />
+                <small>{existing ? "登録済み・保存時に更新" : "新規"}</small>
+              </label>
+            );
+          })}
+          {!targetStudents.length && (
+            <p className="muted">この学年の在籍生徒がいません。</p>
+          )}
+          <button className="btn primary" type="button" onClick={save}>
+            入力した得点を一括保存
+          </button>
+          {message && <p className="batchMessage">{message}</p>}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Ranking({ campusName, students, exams, scores }) {
   const [mode, setMode] = useState("score");
   const [category, setCategory] = useState("");
@@ -1144,6 +1702,11 @@ function Ranking({ campusName, students, exams, scores }) {
   const [toDate, setToDate] = useState("");
   const [grade, setGrade] = useState("");
   const [volumeCategory, setVolumeCategory] = useState("");
+  const [publishCount, setPublishCount] = useState(5);
+  const [nameMode, setNameMode] = useState("full");
+  const [showLower, setShowLower] = useState(true);
+  const [tieMode, setTieMode] = useState("shared");
+  const [includeZero, setIncludeZero] = useState(true);
   const examCategory = (e) => e.category || e.type || "未分類";
   const unique = (values) => [...new Set(values.filter(Boolean))];
   const categories = unique(exams.map(examCategory));
@@ -1205,11 +1768,17 @@ function Ranking({ campusName, students, exams, scores }) {
         (a, b) =>
           b.rate - a.rate || String(a.student.name).localeCompare(String(b.student.name), "ja"),
       );
-    return ranked.map((r, i) => ({
-      ...r,
-      rank: i > 0 && r.rate === ranked[i - 1].rate ? ranked[i - 1].rank : i + 1,
-    }));
-  }, [selectedExam, scores, students]);
+    let lastRank = 0;
+    return ranked.map((r, i) => {
+      if (
+        tieMode !== "shared" ||
+        i === 0 ||
+        r.rate !== ranked[i - 1].rate
+      )
+        lastRank = i + 1;
+      return { ...r, rank: lastRank };
+    });
+  }, [selectedExam, scores, students, tieMode]);
   const volumeRows = useMemo(() => {
     const filteredScores = scores.filter((r) => {
       const e = exams.find((x) => x.id === r.examId);
@@ -1231,19 +1800,33 @@ function Ranking({ campusName, students, exams, scores }) {
             s.grade === CATEGORY_CONFIG[volumeCategory]?.grade),
       )
       .map((student) => ({ student, count: counts.get(student.id) || 0 }))
+      .filter((row) => includeZero || row.count > 0)
       .sort(
         (a, b) =>
           b.count - a.count ||
           String(a.student.name).localeCompare(String(b.student.name), "ja"),
       );
-    return ranked.map((r, i) => ({
-      ...r,
-      rank:
-        i > 0 && r.count === ranked[i - 1].count
-          ? ranked[i - 1].rank
-          : i + 1,
-    }));
-  }, [scores, exams, students, fromDate, toDate, grade, volumeCategory]);
+    let lastRank = 0;
+    return ranked.map((r, i) => {
+      if (
+        tieMode !== "shared" ||
+        i === 0 ||
+        r.count !== ranked[i - 1].count
+      )
+        lastRank = i + 1;
+      return { ...r, rank: lastRank };
+    });
+  }, [
+    scores,
+    exams,
+    students,
+    fromDate,
+    toDate,
+    grade,
+    volumeCategory,
+    includeZero,
+    tieMode,
+  ]);
   const periodText =
     fromDate || toDate
       ? `${fromDate || "開始日指定なし"} ～ ${toDate || "終了日指定なし"}`
@@ -1270,6 +1853,49 @@ function Ranking({ campusName, students, exams, scores }) {
           >
             期間別 採点数ランキング
           </button>
+        </div>
+        <div className="rankingSettings">
+          <F l="氏名を公開する上位人数" c="f3">
+            <select
+              value={publishCount}
+              onChange={(e) => setPublishCount(Number(e.target.value))}
+            >
+              {[3, 5, 10].map((x) => (
+                <option key={x} value={x}>上位{x}人</option>
+              ))}
+            </select>
+          </F>
+          <F l="名前の表示" c="f3">
+            <select value={nameMode} onChange={(e) => setNameMode(e.target.value)}>
+              <option value="full">本名</option>
+              <option value="surname">名字のみ</option>
+              <option value="nickname">ニックネーム</option>
+            </select>
+          </F>
+          <F l="同点者の順位" c="f3">
+            <select value={tieMode} onChange={(e) => setTieMode(e.target.value)}>
+              <option value="shared">同順位にする</option>
+              <option value="sequential">表示順に連番</option>
+            </select>
+          </F>
+          <label className="checkSetting f3">
+            <input
+              type="checkbox"
+              checked={showLower}
+              onChange={(e) => setShowLower(e.target.checked)}
+            />
+            氏名非公開の下位順位も表示
+          </label>
+          {mode === "volume" && (
+            <label className="checkSetting f3">
+              <input
+                type="checkbox"
+                checked={includeZero}
+                onChange={(e) => setIncludeZero(e.target.checked)}
+              />
+              採点数0回の生徒も表示
+            </label>
+          )}
         </div>
 
         {mode === "score" ? (
@@ -1409,6 +2035,9 @@ function Ranking({ campusName, students, exams, scores }) {
               </div>
               <RankingTable
                 rows={scoreRanking}
+                publishCount={publishCount}
+                nameMode={nameMode}
+                showLower={showLower}
                 valueHeader="得点"
                 renderValue={(r) => `${r.score} / ${selectedExam.max}点`}
                 renderExtra={(r) => <>{pct(r.rate)}</>}
@@ -1419,7 +2048,7 @@ function Ranking({ campusName, students, exams, scores }) {
                 <div className="rankingEmpty">この過去問の採点結果はまだありません。</div>
               )}
               <p className="rankingNote">
-                同じ生徒に複数の記録がある場合は、最新の採点結果を掲載しています。氏名は上位5人のみ表示します。
+                同じ生徒に複数の記録がある場合は、最新の採点結果を掲載しています。氏名は設定した上位人数のみ表示します。
               </p>
             </>
           ) : (
@@ -1436,6 +2065,9 @@ function Ranking({ campusName, students, exams, scores }) {
             </div>
             <RankingTable
               rows={volumeRows}
+              publishCount={publishCount}
+              nameMode={nameMode}
+              showLower={showLower}
               valueHeader="採点した過去問数"
               renderValue={(r) => `${r.count}回`}
             />
@@ -1443,7 +2075,7 @@ function Ranking({ campusName, students, exams, scores }) {
               <div className="rankingEmpty">条件に合う生徒がいません。</div>
             )}
             <p className="rankingNote">
-              指定期間内に登録された採点結果1件を、過去問1回として集計しています。氏名は上位5人のみ表示します。
+              指定期間内に登録された採点結果1件を、過去問1回として集計しています。氏名は設定した上位人数のみ表示します。
             </p>
           </>
         )}
@@ -1454,6 +2086,9 @@ function Ranking({ campusName, students, exams, scores }) {
 
 function RankingTable({
   rows,
+  publishCount,
+  nameMode,
+  showLower,
   valueHeader,
   renderValue,
   extraHeader,
@@ -1461,7 +2096,16 @@ function RankingTable({
   renderDate,
 }) {
   if (!rows.length) return null;
-  const displayRows = rows.slice(0, 10);
+  const displayRows = rows.slice(0, showLower ? 10 : publishCount);
+  const displayName = (student) => {
+    if (nameMode === "nickname") return student.nickname || "匿名";
+    if (nameMode === "surname") {
+      const name = String(student.name || "").trim(),
+        separated = name.split(/[\s　]+/u);
+      return separated.length > 1 ? separated[0] : name.slice(0, 2);
+    }
+    return student.name;
+  };
   return (
     <div className="table rankingTable">
       <table>
@@ -1479,7 +2123,9 @@ function RankingTable({
           {displayRows.map((r, index) => (
             <tr className={r.rank <= 3 ? `rankTop rank${r.rank}` : ""} key={r.student.id}>
               <td><span className="rankBadge">{r.rank}</span></td>
-              <td className="rankName">{index < 5 ? r.student.name : ""}</td>
+              <td className="rankName">
+                {index < publishCount ? displayName(r.student) : ""}
+              </td>
               <td>{r.student.grade}</td>
               <td className="rankValue">{renderValue(r)}</td>
               {renderExtra && <td>{renderExtra(r)}</td>}
@@ -1604,7 +2250,7 @@ function Detail({ students, exams, scores, sid, setSid, inter, setInter }) {
             <select value={sid} onChange={(e) => setSid(e.target.value)}>
               {students.map((x) => (
                 <option value={x.id} key={x.id}>
-                  {x.grade} {x.name}
+                  {x.grade} {x.name}{x.archivedAt ? "（卒業生）" : ""}
                 </option>
               ))}
             </select>

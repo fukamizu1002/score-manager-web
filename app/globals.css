@@ -208,6 +208,10 @@ td {
   .studentSummary {
     grid-template-columns: 1fr 1fr;
   }
+  .batchHead,
+  .batchRow {
+    grid-template-columns: 1fr;
+  }
 }
 @media print {
   @page {
@@ -324,6 +328,55 @@ td {
 .filterActions .btn {
   width: 100%;
 }
+.formWarning {
+  background: #fff4e5;
+  border: 1px solid #f5b041;
+  color: #7a4100;
+  border-radius: 9px;
+  padding: 10px 12px;
+}
+.batchScores {
+  margin-top: 16px;
+  border-top: 1px solid #dfe5ec;
+  padding-top: 14px;
+}
+.batchHead,
+.batchRow {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 150px 180px;
+  gap: 12px;
+  align-items: center;
+  padding: 9px;
+}
+.batchHead {
+  background: #edf3fa;
+  border-radius: 9px;
+}
+.batchRow {
+  color: #172033;
+  border-bottom: 1px solid #edf0f4;
+}
+.batchRow input {
+  margin: 0;
+}
+.batchRow small {
+  color: #667085;
+}
+.batchMessage {
+  display: inline-block;
+  margin-left: 12px;
+  color: #166534;
+}
+.attentionCard h2 {
+  margin-bottom: 4px;
+}
+.listHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
 .rankingMode,
 .rankingActions {
   display: flex;
@@ -333,6 +386,28 @@ td {
 }
 .rankingFilters {
   margin-top: 14px;
+}
+.rankingSettings {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 10px;
+  align-items: end;
+  background: #f8fafc;
+  border: 1px solid #dfe5ec;
+  border-radius: 10px;
+  padding: 12px;
+  margin-top: 14px;
+}
+.checkSetting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 39px;
+  color: #172033;
+  margin: 0;
+}
+.checkSetting input {
+  width: auto;
 }
 .rankingSheet {
   margin-top: 14px;
