@@ -334,6 +334,7 @@ function App({ profile }) {
               ["students", "生徒"],
               ["exams", "過去問"],
               ["detail", "面談・分析"],
+              ["ranking", "校舎ランキング"],
             ].map(([k, l]) => (
               <button
                 className={tab === k ? "active" : ""}
@@ -370,6 +371,14 @@ function App({ profile }) {
             setSid={setSid}
             inter={inter}
             setInter={setInter}
+          />
+        )}
+        {tab === "ranking" && (
+          <Ranking
+            campusName={campusName}
+            students={students}
+            exams={exams}
+            scores={scores}
           />
         )}
       </main>
@@ -1084,6 +1093,361 @@ function Entry({ cid, students, exams, scores }) {
     </>
   );
 }
+
+function Ranking({ campusName, students, exams, scores }) {
+  const [mode, setMode] = useState("score");
+  const [category, setCategory] = useState("");
+  const [school, setSchool] = useState("");
+  const [year, setYear] = useState("");
+  const [subject, setSubject] = useState("");
+  const [examId, setExamId] = useState("");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [grade, setGrade] = useState("");
+  const [volumeCategory, setVolumeCategory] = useState("");
+  const examCategory = (e) => e.category || e.type || "未分類";
+  const unique = (values) => [...new Set(values.filter(Boolean))];
+  const categories = unique(exams.map(examCategory));
+  const categoryExams = exams.filter(
+    (e) => !category || examCategory(e) === category,
+  );
+  const schools = unique(categoryExams.map((e) => e.school)).sort((a, b) =>
+    a.localeCompare(b, "ja"),
+  );
+  const schoolExams = categoryExams.filter(
+    (e) => !school || e.school === school,
+  );
+  const years = unique(schoolExams.map((e) => String(e.year))).sort(
+    (a, b) => Number(b) - Number(a),
+  );
+  const yearExams = schoolExams.filter(
+    (e) => !year || String(e.year) === year,
+  );
+  const subjects = unique(yearExams.map((e) => e.subject));
+  const choices = yearExams.filter(
+    (e) => !subject || e.subject === subject,
+  );
+  const selectedExam = exams.find((e) => e.id === examId);
+  const resetScoreFilters = () => {
+    setCategory("");
+    setSchool("");
+    setYear("");
+    setSubject("");
+    setExamId("");
+  };
+  const selectCategory = (value) => {
+    setCategory(value);
+    setSchool("");
+    setYear("");
+    setSubject("");
+    setExamId("");
+  };
+  const scoreRanking = useMemo(() => {
+    if (!selectedExam) return [];
+    const latest = new Map();
+    scores
+      .filter((r) => r.examId === selectedExam.id)
+      .forEach((r) => {
+        const current = latest.get(r.studentId);
+        if (!current || String(r.date || "") >= String(current.date || ""))
+          latest.set(r.studentId, r);
+      });
+    const ranked = [...latest.values()]
+      .map((r) => ({
+        ...r,
+        student: students.find((s) => s.id === r.studentId),
+        rate:
+          Number(selectedExam.max) > 0
+            ? (Number(r.score) / Number(selectedExam.max)) * 100
+            : 0,
+      }))
+      .filter((r) => r.student)
+      .sort(
+        (a, b) =>
+          b.rate - a.rate || String(a.student.name).localeCompare(String(b.student.name), "ja"),
+      );
+    return ranked.map((r, i) => ({
+      ...r,
+      rank: i > 0 && r.rate === ranked[i - 1].rate ? ranked[i - 1].rank : i + 1,
+    }));
+  }, [selectedExam, scores, students]);
+  const volumeRows = useMemo(() => {
+    const filteredScores = scores.filter((r) => {
+      const e = exams.find((x) => x.id === r.examId);
+      return (
+        (!fromDate || r.date >= fromDate) &&
+        (!toDate || r.date <= toDate) &&
+        (!volumeCategory || examCategory(e || {}) === volumeCategory)
+      );
+    });
+    const counts = new Map();
+    filteredScores.forEach((r) =>
+      counts.set(r.studentId, (counts.get(r.studentId) || 0) + 1),
+    );
+    const ranked = students
+      .filter(
+        (s) =>
+          (!grade || s.grade === grade) &&
+          (!volumeCategory ||
+            s.grade === CATEGORY_CONFIG[volumeCategory]?.grade),
+      )
+      .map((student) => ({ student, count: counts.get(student.id) || 0 }))
+      .sort(
+        (a, b) =>
+          b.count - a.count ||
+          String(a.student.name).localeCompare(String(b.student.name), "ja"),
+      );
+    return ranked.map((r, i) => ({
+      ...r,
+      rank:
+        i > 0 && r.count === ranked[i - 1].count
+          ? ranked[i - 1].rank
+          : i + 1,
+    }));
+  }, [scores, exams, students, fromDate, toDate, grade, volumeCategory]);
+  const periodText =
+    fromDate || toDate
+      ? `${fromDate || "開始日指定なし"} ～ ${toDate || "終了日指定なし"}`
+      : "全期間";
+  const createdText = new Date().toLocaleDateString("ja-JP");
+
+  return (
+    <>
+      <div className="card noPrint">
+        <h2>校舎ランキング</h2>
+        <p className="muted">
+          校舎掲示用のランキングを作成し、印刷画面からA4のPDFとして保存できます。
+        </p>
+        <div className="rankingMode">
+          <button
+            className={`btn ${mode === "score" ? "primary" : "ghost"}`}
+            onClick={() => setMode("score")}
+          >
+            過去問別 得点ランキング
+          </button>
+          <button
+            className={`btn ${mode === "volume" ? "primary" : "ghost"}`}
+            onClick={() => setMode("volume")}
+          >
+            期間別 採点数ランキング
+          </button>
+        </div>
+
+        {mode === "score" ? (
+          <div className="reportFilters rankingFilters">
+            <F l="過去問の種類" c="f4">
+              <select value={category} onChange={(e) => selectCategory(e.target.value)}>
+                <option value="">すべて</option>
+                {categories.map((x) => <option key={x}>{x}</option>)}
+              </select>
+            </F>
+            <F l="学校・模試名" c="f4">
+              <select
+                value={school}
+                onChange={(e) => {
+                  setSchool(e.target.value);
+                  setYear("");
+                  setSubject("");
+                  setExamId("");
+                }}
+              >
+                <option value="">すべて</option>
+                {schools.map((x) => <option key={x}>{x}</option>)}
+              </select>
+            </F>
+            <F l="年度" c="f4">
+              <select
+                value={year}
+                onChange={(e) => {
+                  setYear(e.target.value);
+                  setSubject("");
+                  setExamId("");
+                }}
+              >
+                <option value="">すべて</option>
+                {years.map((x) => <option key={x} value={x}>{x}年度</option>)}
+              </select>
+            </F>
+            <F l="科目" c="f4">
+              <select
+                value={subject}
+                onChange={(e) => {
+                  setSubject(e.target.value);
+                  setExamId("");
+                }}
+              >
+                <option value="">すべて</option>
+                {subjects.map((x) => <option key={x}>{x}</option>)}
+              </select>
+            </F>
+            <F l="ランキングを作る過去問" c="f8">
+              <select value={examId} onChange={(e) => setExamId(e.target.value)}>
+                <option value="">選択してください</option>
+                {choices.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {examCategory(e)} / {e.school} / {examYear(e)} / {e.subject}
+                  </option>
+                ))}
+              </select>
+            </F>
+            <div className="f4 filterActions">
+              <button className="btn ghost" type="button" onClick={resetScoreFilters}>
+                条件をリセット
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="reportFilters rankingFilters">
+            <F l="採点日（開始）" c="f3">
+              <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
+            </F>
+            <F l="採点日（終了）" c="f3">
+              <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
+            </F>
+            <F l="学年" c="f3">
+              <select
+                value={grade}
+                onChange={(e) => {
+                  setGrade(e.target.value);
+                  if (
+                    volumeCategory &&
+                    CATEGORY_CONFIG[volumeCategory]?.grade !== e.target.value
+                  )
+                    setVolumeCategory("");
+                }}
+              >
+                <option value="">全学年</option>
+                {GRADES.map((x) => <option key={x}>{x}</option>)}
+              </select>
+            </F>
+            <F l="過去問の種類" c="f3">
+              <select value={volumeCategory} onChange={(e) => setVolumeCategory(e.target.value)}>
+                <option value="">すべて</option>
+                {categories
+                  .filter((x) => !grade || CATEGORY_CONFIG[x]?.grade === grade)
+                  .map((x) => <option key={x}>{x}</option>)}
+              </select>
+            </F>
+          </div>
+        )}
+        <div className="rankingActions">
+          <button
+            className="btn primary"
+            disabled={mode === "score" && !selectedExam}
+            onClick={() => window.print()}
+          >
+            掲示用PDFを作成 / 印刷
+          </button>
+        </div>
+      </div>
+
+      <div className="card rankingSheet">
+        <div className="rankingHead">
+          <div>
+            <div className="rankingCampus">{campusName}</div>
+            <h1>
+              {mode === "score"
+                ? "過去問 得点ランキング"
+                : "過去問チャレンジランキング"}
+            </h1>
+          </div>
+          <div className="muted">作成日：{createdText}</div>
+        </div>
+
+        {mode === "score" ? (
+          selectedExam ? (
+            <>
+              <div className="rankingCondition">
+                <b>{examCategory(selectedExam)}</b>
+                <span>{selectedExam.school}</span>
+                <span>{examYear(selectedExam)}</span>
+                <span>{selectedExam.subject}</span>
+                <span>{selectedExam.max}点満点</span>
+              </div>
+              <RankingTable
+                rows={scoreRanking}
+                valueHeader="得点"
+                renderValue={(r) => `${r.score} / ${selectedExam.max}点`}
+                renderExtra={(r) => <>{pct(r.rate)}</>}
+                extraHeader="得点率"
+                renderDate={(r) => r.date || "—"}
+              />
+              {!scoreRanking.length && (
+                <div className="rankingEmpty">この過去問の採点結果はまだありません。</div>
+              )}
+              <p className="rankingNote">
+                同じ生徒に複数の記録がある場合は、最新の採点結果を掲載しています。
+              </p>
+            </>
+          ) : (
+            <div className="rankingEmpty">上の条件から過去問を選択してください。</div>
+          )
+        ) : (
+          <>
+            <div className="rankingCondition">
+              <b>{periodText}</b>
+              <span>
+                {grade || CATEGORY_CONFIG[volumeCategory]?.grade || "全学年"}
+              </span>
+              <span>{volumeCategory || "全種類"}</span>
+            </div>
+            <RankingTable
+              rows={volumeRows}
+              valueHeader="採点した過去問数"
+              renderValue={(r) => `${r.count}回`}
+            />
+            {!volumeRows.length && (
+              <div className="rankingEmpty">条件に合う生徒がいません。</div>
+            )}
+            <p className="rankingNote">
+              指定期間内に登録された採点結果1件を、過去問1回として集計しています。0回の生徒も掲載しています。
+            </p>
+          </>
+        )}
+      </div>
+    </>
+  );
+}
+
+function RankingTable({
+  rows,
+  valueHeader,
+  renderValue,
+  extraHeader,
+  renderExtra,
+  renderDate,
+}) {
+  if (!rows.length) return null;
+  return (
+    <div className="table rankingTable">
+      <table>
+        <thead>
+          <tr>
+            <th>順位</th>
+            <th>生徒名</th>
+            <th>学年</th>
+            <th>{valueHeader}</th>
+            {extraHeader && <th>{extraHeader}</th>}
+            {renderDate && <th>採点日</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr className={r.rank <= 3 ? `rankTop rank${r.rank}` : ""} key={r.student.id}>
+              <td><span className="rankBadge">{r.rank}</span></td>
+              <td className="rankName">{r.student.name}</td>
+              <td>{r.student.grade}</td>
+              <td className="rankValue">{renderValue(r)}</td>
+              {renderExtra && <td>{renderExtra(r)}</td>}
+              {renderDate && <td>{renderDate(r)}</td>}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function Detail({ students, exams, scores, sid, setSid, inter, setInter }) {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");

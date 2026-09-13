@@ -324,6 +324,110 @@ td {
 .filterActions .btn {
   width: 100%;
 }
+.rankingMode,
+.rankingActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  flex-wrap: wrap;
+}
+.rankingFilters {
+  margin-top: 14px;
+}
+.rankingSheet {
+  margin-top: 14px;
+  min-height: 700px;
+  padding: 28px;
+}
+.rankingHead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 4px solid #172033;
+  padding-bottom: 14px;
+  margin-bottom: 18px;
+}
+.rankingHead h1 {
+  margin: 4px 0 0;
+  font-size: 30px;
+}
+.rankingCampus {
+  color: #2f6fed;
+  font-weight: 800;
+  letter-spacing: 0.05em;
+}
+.rankingCondition {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  background: #edf3fa;
+  border-radius: 10px;
+  padding: 13px;
+  margin-bottom: 18px;
+}
+.rankingCondition span + span::before {
+  content: "/";
+  color: #98a2b3;
+  margin-right: 10px;
+}
+.rankingTable table {
+  font-size: 15px;
+}
+.rankingTable th {
+  background: #172033;
+  color: white;
+}
+.rankingTable th,
+.rankingTable td {
+  padding: 12px;
+}
+.rankBadge {
+  display: inline-grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #e7edf5;
+  font-size: 17px;
+  font-weight: 900;
+}
+.rankTop .rankName,
+.rankTop .rankValue {
+  font-weight: 800;
+}
+.rank1 {
+  background: #fff8d8;
+}
+.rank2 {
+  background: #f1f5f9;
+}
+.rank3 {
+  background: #fff1e8;
+}
+.rank1 .rankBadge {
+  background: #f4c542;
+}
+.rank2 .rankBadge {
+  background: #cbd5e1;
+}
+.rank3 .rankBadge {
+  background: #d89b6a;
+  color: white;
+}
+.rankingEmpty {
+  padding: 70px 16px;
+  text-align: center;
+  color: #667085;
+  font-size: 16px;
+}
+.rankingNote {
+  color: #667085;
+  font-size: 11px;
+  margin-top: 18px;
+  text-align: right;
+}
 @media print {
   .aiSummary {
     break-before: page;
@@ -364,5 +468,21 @@ td {
   }
   .summaryBlock {
     font-size: 9.5pt;
+  }
+  .rankingSheet {
+    min-height: auto;
+    margin: 0;
+    border: 0;
+    padding: 5mm;
+    break-inside: auto;
+  }
+  .rankingTable {
+    overflow: visible;
+  }
+  .rankingTable table {
+    font-size: 11pt;
+  }
+  .rankingTable tr {
+    break-inside: avoid;
   }
 }
