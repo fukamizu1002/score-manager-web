@@ -9,6 +9,7 @@ import {
   onSnapshot,
   serverTimestamp,
   updateDoc,
+  writeBatch,
 } from "firebase/firestore";
 
 const GRADES = ["小6", "中3"];
@@ -435,6 +436,13 @@ export function MockManager({ cid, students }) {
         )}
       </div>
 
+      <MockBatchEntry
+        cid={cid}
+        students={students}
+        exams={activeExams}
+        results={mockResults.filter((result) => !result.deletedAt)}
+      />
+
       <div className="card s12">
         <h2>生徒別 模擬試験結果</h2>
         <form className="form" onSubmit={saveResult}>
@@ -620,6 +628,344 @@ export function MockManager({ cid, students }) {
           </table>
         </div>
       </div>
+    </div>
+  );
+}
+
+function MockBatchEntry({ cid, students, exams, results }) {
+  const [examId, setExamId] = useState(""),
+    [rows, setRows] = useState({}),
+    [message, setMessage] = useState(""),
+    exam = exams.find((item) => item.id === examId),
+    targetStudents = students.filter(
+      (student) => !exam || student.grade === exam.grade,
+    );
+  useEffect(() => {
+    if (!exam) {
+      setRows({});
+      return;
+    }
+    setRows(
+      Object.fromEntries(
+        targetStudents.map((student) => {
+          const existing = results.find(
+              (result) =>
+                result.examId === exam.id && result.studentId === student.id,
+            ),
+            targetJudgment = (existing?.judgments || []).find(
+              (item) => item.school === student.targetSchool,
+            )?.judgment;
+          return [
+            student.id,
+            {
+              subjects: Object.fromEntries(
+                (exam.subjects || []).map((subject) => {
+                  const value = existing?.subjectResults?.[subject.name];
+                  return [
+                    subject.name,
+                    {
+                      score: value?.score ?? "",
+                      deviation: value?.deviation ?? "",
+                    },
+                  ];
+                }),
+              ),
+              totalScore: existing?.totalScore ?? "",
+              totalDeviation: existing?.totalDeviation ?? "",
+              judgment: targetJudgment || "",
+              existingId: existing?.id || "",
+            },
+          ];
+        }),
+      ),
+    );
+    setMessage("");
+  }, [examId, exams, results, students]);
+  const updateRow = (studentId, key, value) =>
+    setRows({
+      ...rows,
+      [studentId]: { ...rows[studentId], [key]: value },
+    });
+  const updateSubject = (studentId, subject, key, value) =>
+    setRows({
+      ...rows,
+      [studentId]: {
+        ...rows[studentId],
+        subjects: {
+          ...rows[studentId]?.subjects,
+          [subject]: { ...rows[studentId]?.subjects?.[subject], [key]: value },
+        },
+      },
+    });
+  const subjectTotal = (row) =>
+    Object.values(row?.subjects || {}).reduce(
+      (sum, value) =>
+        sum + (value.score === "" || value.score == null ? 0 : Number(value.score) || 0),
+      0,
+    );
+  const hasData = (row) =>
+    row &&
+    (row.totalScore !== "" ||
+      row.totalDeviation !== "" ||
+      row.judgment ||
+      Object.values(row.subjects || {}).some(
+        (value) => value.score !== "" || value.deviation !== "",
+      ));
+  const save = async () => {
+    setMessage("");
+    if (!exam) {
+      setMessage("模擬試験を選択してください。");
+      return;
+    }
+    const entries = targetStudents
+      .map((student) => ({ student, row: rows[student.id] }))
+      .filter(({ row }) => hasData(row));
+    if (!entries.length) {
+      setMessage("少なくとも1人の結果を入力してください。");
+      return;
+    }
+    const totalMax = (exam.subjects || []).reduce(
+      (sum, subject) => sum + Number(subject.max || 0),
+      0,
+    );
+    for (const { student, row } of entries) {
+      for (const subject of exam.subjects || []) {
+        const value = row.subjects?.[subject.name] || {};
+        if (
+          value.score !== "" &&
+          value.score != null &&
+          (Number(value.score) < 0 || Number(value.score) > Number(subject.max))
+        ) {
+          setMessage(`${student.name}さんの${subject.name}は0～${subject.max}点で入力してください。`);
+          return;
+        }
+        if (
+          value.deviation !== "" &&
+          value.deviation != null &&
+          (Number(value.deviation) < 0 || Number(value.deviation) > 100)
+        ) {
+          setMessage(`${student.name}さんの${subject.name}偏差値は0～100で入力してください。`);
+          return;
+        }
+      }
+      if (
+        row.totalScore !== "" &&
+        (Number(row.totalScore) < 0 || Number(row.totalScore) > totalMax)
+      ) {
+        setMessage(`${student.name}さんの合計得点は0～${totalMax}点で入力してください。`);
+        return;
+      }
+      if (
+        row.totalDeviation !== "" &&
+        (Number(row.totalDeviation) < 0 || Number(row.totalDeviation) > 100)
+      ) {
+        setMessage(`${student.name}さんの総合偏差値は0～100で入力してください。`);
+        return;
+      }
+    }
+    const batch = writeBatch(db);
+    entries.forEach(({ student, row }) => {
+      const existing = results.find(
+          (result) =>
+            result.examId === exam.id && result.studentId === student.id,
+        ),
+        judgments = (existing?.judgments || []).filter(
+          (item) => !student.targetSchool || item.school !== student.targetSchool,
+        );
+      if (student.targetSchool && row.judgment)
+        judgments.push({
+          school: student.targetSchool,
+          judgment: row.judgment,
+        });
+      const payload = {
+        examId: exam.id,
+        studentId: student.id,
+        subjectResults: Object.fromEntries(
+          (exam.subjects || []).map((subject) => {
+            const value = row.subjects?.[subject.name] || {};
+            return [
+              subject.name,
+              {
+                score:
+                  value.score === "" || value.score == null
+                    ? null
+                    : Number(value.score),
+                deviation:
+                  value.deviation === "" || value.deviation == null
+                    ? null
+                    : Number(value.deviation),
+              },
+            ];
+          }),
+        ),
+        totalScore:
+          row.totalScore === "" ? subjectTotal(row) : Number(row.totalScore),
+        totalDeviation:
+          row.totalDeviation === "" ? null : Number(row.totalDeviation),
+        judgments,
+      };
+      if (existing)
+        batch.update(doc(db, "campuses", cid, "mockResults", existing.id), payload);
+      else
+        batch.set(doc(collection(db, "campuses", cid, "mockResults")), {
+          ...payload,
+          createdAt: serverTimestamp(),
+        });
+    });
+    await batch.commit();
+    setMessage(
+      `${entries.length}人分を保存しました。登録済み結果は重複させず更新しています。`,
+    );
+  };
+  return (
+    <div className="card s12 mockBatchEntry">
+      <h2>模擬試験結果の一括入力</h2>
+      <p className="muted">
+        模擬試験を一度選び、対象学年の生徒全員を表形式で入力できます。
+      </p>
+      <Field label="模擬試験" className="f6">
+        <select value={examId} onChange={(event) => setExamId(event.target.value)}>
+          <option value="">選択</option>
+          {exams.map((item) => (
+            <option value={item.id} key={item.id}>
+              {item.date} / {item.name} / {item.grade}
+            </option>
+          ))}
+        </select>
+      </Field>
+      {exam && (
+        <>
+          <div className="table mockBatchTable">
+            <table>
+              <thead>
+                <tr>
+                  <th rowSpan="2">生徒</th>
+                  {(exam.subjects || []).map((subject) => (
+                    <th colSpan="2" key={subject.name}>
+                      {subject.name}（{subject.max}点）
+                    </th>
+                  ))}
+                  <th rowSpan="2">合計得点</th>
+                  <th rowSpan="2">総合偏差値</th>
+                  <th rowSpan="2">第一志望判定</th>
+                </tr>
+                <tr>
+                  {(exam.subjects || []).flatMap((subject) => [
+                    <th key={`${subject.name}-score`}>得点</th>,
+                    <th key={`${subject.name}-deviation`}>偏差値</th>,
+                  ])}
+                </tr>
+              </thead>
+              <tbody>
+                {targetStudents.map((student) => {
+                  const row = rows[student.id] || { subjects: {} },
+                    total = subjectTotal(row);
+                  return (
+                    <tr key={student.id}>
+                      <td className="mockBatchName">
+                        <b>{student.name}</b>
+                        {row.existingId && <small>登録済み</small>}
+                      </td>
+                      {(exam.subjects || []).flatMap((subject) => {
+                        const value = row.subjects?.[subject.name] || {};
+                        return [
+                          <td key={`${student.id}-${subject.name}-score`}>
+                            <input
+                              type="number"
+                              min="0"
+                              max={subject.max}
+                              value={value.score ?? ""}
+                              onChange={(event) =>
+                                updateSubject(
+                                  student.id,
+                                  subject.name,
+                                  "score",
+                                  event.target.value,
+                                )
+                              }
+                            />
+                          </td>,
+                          <td key={`${student.id}-${subject.name}-deviation`}>
+                            <input
+                              type="number"
+                              min="0"
+                              max="100"
+                              step="0.1"
+                              value={value.deviation ?? ""}
+                              onChange={(event) =>
+                                updateSubject(
+                                  student.id,
+                                  subject.name,
+                                  "deviation",
+                                  event.target.value,
+                                )
+                              }
+                            />
+                          </td>,
+                        ];
+                      })}
+                      <td>
+                        <input
+                          type="number"
+                          min="0"
+                          max={(exam.subjects || []).reduce(
+                            (sum, subject) => sum + Number(subject.max || 0),
+                            0,
+                          )}
+                          value={row.totalScore ?? ""}
+                          placeholder={`${total}`}
+                          onChange={(event) =>
+                            updateRow(student.id, "totalScore", event.target.value)
+                          }
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.1"
+                          value={row.totalDeviation ?? ""}
+                          onChange={(event) =>
+                            updateRow(student.id, "totalDeviation", event.target.value)
+                          }
+                        />
+                      </td>
+                      <td>
+                        {student.targetSchool ? (
+                          <div className="batchJudgment">
+                            <small>{student.targetSchool}</small>
+                            <select
+                              value={row.judgment || ""}
+                              onChange={(event) =>
+                                updateRow(student.id, "judgment", event.target.value)
+                              }
+                            >
+                              <option value="">—</option>
+                              {JUDGMENTS.map((judgment) => (
+                                <option key={judgment}>{judgment}</option>
+                              ))}
+                            </select>
+                          </div>
+                        ) : (
+                          <small className="muted">第一志望未登録</small>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          <p className="muted">
+            合計得点を空欄にすると、入力した科目得点の合計を自動保存します。複数校の判定は上の「生徒別 模擬試験結果」から追加できます。
+          </p>
+          <button className="btn primary" type="button" onClick={save}>
+            入力した模試結果を一括保存
+          </button>
+          {message && <span className="mockBatchMessage">{message}</span>}
+        </>
+      )}
     </div>
   );
 }

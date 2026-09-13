@@ -567,6 +567,50 @@ td {
 .mockScoreTable input {
   min-width: 90px;
 }
+.mockBatchEntry > .f6 {
+  max-width: 560px;
+}
+.mockBatchTable {
+  margin-top: 14px;
+}
+.mockBatchTable table {
+  min-width: 1100px;
+}
+.mockBatchTable th {
+  text-align: center;
+  white-space: nowrap;
+  background: #edf3fa;
+}
+.mockBatchTable td {
+  min-width: 90px;
+}
+.mockBatchTable input,
+.mockBatchTable select {
+  min-width: 80px;
+  padding: 8px;
+}
+.mockBatchName {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  min-width: 150px !important;
+  background: white;
+}
+.mockBatchName small {
+  display: block;
+  color: #00856a;
+  margin-top: 3px;
+}
+.batchJudgment small {
+  display: block;
+  min-width: 140px;
+  margin-bottom: 4px;
+}
+.mockBatchMessage {
+  display: inline-block;
+  margin-left: 12px;
+  color: #166534;
+}
 .mockJudgments {
   background: #f8fafc;
   border: 1px solid #dfe5ec;
