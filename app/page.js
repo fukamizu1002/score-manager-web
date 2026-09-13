@@ -43,6 +43,24 @@ const categoriesForGrade = (grade) =>
     .map(([k]) => k);
 const range = (from, to) =>
   Array.from({ length: to - from + 1 }, (_, i) => from + i);
+const FORTY_POINT_EXAMS = new Set([
+  "小石川|適性検査Ⅱ 大問2",
+  "武蔵|適性検査Ⅱ 大問2",
+  "桜修館|適性検査Ⅱ 大問1",
+  "三鷹|適性検査Ⅱ 大問1",
+]);
+function isFortyPointExam(exam) {
+  const year = Number(exam?.year),
+    school = String(exam?.school || "").replace(/(中学校|中)$/u, ""),
+    subject = String(exam?.subject || "");
+  return (
+    year >= 2022 &&
+    year <= 2026 &&
+    FORTY_POINT_EXAMS.has(`${school}|${subject}`)
+  );
+}
+const correctedExamMax = (exam) =>
+  isFortyPointExam(exam) ? 40 : Number(exam?.max) || 100;
 function standardExamPresets() {
   const list = [],
     push = (school, years, subjects, category = "都立高") =>
@@ -54,7 +72,7 @@ function standardExamPresets() {
             subject,
             category,
             type: category,
-            max: 100,
+            max: correctedExamMax({ school, year, subject, max: 100 }),
           }),
         ),
       );
@@ -302,7 +320,27 @@ function App({ profile }) {
         collection(db, "campuses", cid, "exams"),
         orderBy("createdAt", "asc"),
       ),
-      (s) => setExams(s.docs.map((d) => ({ id: d.id, ...d.data() }))),
+      (snapshot) => {
+        const loaded = snapshot.docs.map((d) => ({ id: d.id, ...d.data() })),
+          corrections = loaded.filter(
+            (exam) => isFortyPointExam(exam) && Number(exam.max) !== 40,
+          );
+        setExams(
+          loaded.map((exam) => ({
+            ...exam,
+            max: correctedExamMax(exam),
+          })),
+        );
+        if (corrections.length) {
+          const batch = writeBatch(db);
+          corrections.forEach((exam) =>
+            batch.update(doc(db, "campuses", cid, "exams", exam.id), {
+              max: 40,
+            }),
+          );
+          batch.commit().catch((error) => console.error(error));
+        }
+      },
     );
     const un3 = onSnapshot(
       query(
