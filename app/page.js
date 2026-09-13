@@ -174,6 +174,7 @@ function eraYear(year) {
   if (y >= 1926) return `昭和${y === 1926 ? "元" : y - 1925}年度`;
   return `${y}年度`;
 }
+const yearWithEra = (year) => `${year}年度（${eraYear(year)}）`;
 const examYear = (exam) =>
   String(exam?.school || "").startsWith("Vもぎ") ||
   (exam?.category || exam?.type) === "公立高校"
@@ -1000,7 +1001,7 @@ function Entry({ cid, students, exams, scores }) {
               <option value="">選択</option>
               {years.map((x) => (
                 <option key={x} value={x}>
-                  {f.category === "公立高校" ? `${x}年度` : eraYear(x)}
+                  {yearWithEra(x)}
                 </option>
               ))}
             </select>
@@ -1265,7 +1266,11 @@ function Ranking({ campusName, students, exams, scores }) {
                 }}
               >
                 <option value="">すべて</option>
-                {years.map((x) => <option key={x} value={x}>{x}年度</option>)}
+                {years.map((x) => (
+                  <option key={x} value={x}>
+                    {yearWithEra(x)}
+                  </option>
+                ))}
               </select>
             </F>
             <F l="科目" c="f4">
