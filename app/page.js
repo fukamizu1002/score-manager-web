@@ -1419,7 +1419,7 @@ function Ranking({ campusName, students, exams, scores }) {
                 <div className="rankingEmpty">この過去問の採点結果はまだありません。</div>
               )}
               <p className="rankingNote">
-                同じ生徒に複数の記録がある場合は、最新の採点結果を掲載しています。
+                同じ生徒に複数の記録がある場合は、最新の採点結果を掲載しています。氏名は上位5人のみ表示します。
               </p>
             </>
           ) : (
@@ -1443,7 +1443,7 @@ function Ranking({ campusName, students, exams, scores }) {
               <div className="rankingEmpty">条件に合う生徒がいません。</div>
             )}
             <p className="rankingNote">
-              指定期間内に登録された採点結果1件を、過去問1回として集計しています。0回の生徒も掲載しています。
+              指定期間内に登録された採点結果1件を、過去問1回として集計しています。氏名は上位5人のみ表示します。
             </p>
           </>
         )}
@@ -1461,6 +1461,7 @@ function RankingTable({
   renderDate,
 }) {
   if (!rows.length) return null;
+  const displayRows = rows.slice(0, 10);
   return (
     <div className="table rankingTable">
       <table>
@@ -1475,10 +1476,10 @@ function RankingTable({
           </tr>
         </thead>
         <tbody>
-          {rows.map((r) => (
+          {displayRows.map((r, index) => (
             <tr className={r.rank <= 3 ? `rankTop rank${r.rank}` : ""} key={r.student.id}>
               <td><span className="rankBadge">{r.rank}</span></td>
-              <td className="rankName">{r.student.name}</td>
+              <td className="rankName">{index < 5 ? r.student.name : ""}</td>
               <td>{r.student.grade}</td>
               <td className="rankValue">{renderValue(r)}</td>
               {renderExtra && <td>{renderExtra(r)}</td>}
