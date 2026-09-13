@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../lib/firebase";
+import { MockAnalysis, MockManager } from "./mock";
 import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
@@ -390,6 +391,8 @@ function App({ profile }) {
               ["exams", "過去問"],
               ["detail", "面談・分析"],
               ["ranking", "校舎ランキング"],
+              ["mocks", "模擬試験"],
+              ["mockAnalysis", "模試分析"],
               ["trash", "ごみ箱"],
             ].map(([k, l]) => (
               <button
@@ -444,6 +447,16 @@ function App({ profile }) {
             students={activeStudents}
             exams={activeExams}
             scores={currentScores}
+          />
+        )}
+        {tab === "mocks" && (
+          <MockManager cid={cid} students={activeStudents} />
+        )}
+        {tab === "mockAnalysis" && (
+          <MockAnalysis
+            cid={cid}
+            campusName={campusName}
+            students={reportStudents}
           />
         )}
         {tab === "trash" && (
