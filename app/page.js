@@ -60,8 +60,14 @@ function isFortyPointExam(exam) {
     FORTY_POINT_EXAMS.has(`${school}|${subject}`)
   );
 }
+const isTokyoHighEnglishExam = (exam) =>
+  (exam?.category || exam?.type) === "都立高" && exam?.subject === "英語";
 const correctedExamMax = (exam) =>
-  isFortyPointExam(exam) ? 40 : Number(exam?.max) || 100;
+  isFortyPointExam(exam)
+    ? 40
+    : isTokyoHighEnglishExam(exam)
+      ? 80
+      : Number(exam?.max) || 100;
 function standardExamPresets() {
   const list = [],
     push = (school, years, subjects, category = "都立高") =>
@@ -73,7 +79,14 @@ function standardExamPresets() {
             subject,
             category,
             type: category,
-            max: correctedExamMax({ school, year, subject, max: 100 }),
+            max: correctedExamMax({
+              school,
+              year,
+              subject,
+              category,
+              type: category,
+              max: 100,
+            }),
           }),
         ),
       );
@@ -324,7 +337,9 @@ function App({ profile }) {
       (snapshot) => {
         const loaded = snapshot.docs.map((d) => ({ id: d.id, ...d.data() })),
           corrections = loaded.filter(
-            (exam) => isFortyPointExam(exam) && Number(exam.max) !== 40,
+            (exam) =>
+              (isFortyPointExam(exam) || isTokyoHighEnglishExam(exam)) &&
+              Number(exam.max) !== correctedExamMax(exam),
           );
         setExams(
           loaded.map((exam) => ({
@@ -336,7 +351,7 @@ function App({ profile }) {
           const batch = writeBatch(db);
           corrections.forEach((exam) =>
             batch.update(doc(db, "campuses", cid, "exams", exam.id), {
-              max: 40,
+              max: correctedExamMax(exam),
             }),
           );
           batch.commit().catch((error) => console.error(error));
