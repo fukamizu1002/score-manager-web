@@ -216,6 +216,11 @@ const analysisSubject = (subject) =>
   String(subject || "").startsWith("適性検査Ⅱ")
     ? "適性検査Ⅱ"
     : subject || "";
+const normalizeSearch = (value) =>
+  String(value ?? "")
+    .normalize("NFKC")
+    .toLocaleLowerCase("ja")
+    .replace(/\s+/gu, "");
 function F({ l, c = "f12", children }) {
   return (
     <div className={c}>
@@ -892,17 +897,43 @@ function Exams({ cid, data }) {
   const [f, setF] = useState(initial),
     [editingId, setEditingId] = useState(null),
     [bulkMessage, setBulkMessage] = useState(""),
-    [bulkBusy, setBulkBusy] = useState(false);
+    [bulkBusy, setBulkBusy] = useState(false),
+    [examMessage, setExamMessage] = useState(""),
+    [searchText, setSearchText] = useState(""),
+    [listCategory, setListCategory] = useState(""),
+    [listSubject, setListSubject] = useState("");
   const chooseCategory = (category) =>
     setF({ ...f, category, subject: CATEGORY_CONFIG[category].subjects[0] });
   const save = async (e) => {
     e.preventDefault();
+    setExamMessage("");
     const value = {
       ...f,
       type: f.category,
       year: Number(f.year),
-      max: Number(f.max),
+      max: correctedExamMax({
+        ...f,
+        type: f.category,
+        year: Number(f.year),
+        max: Number(f.max),
+      }),
     };
+    const duplicate = data.find(
+      (exam) =>
+        exam.id !== editingId &&
+        (exam.category || exam.type || "") === value.category &&
+        normalizeSearch(exam.school) === normalizeSearch(value.school) &&
+        String(exam.year) === String(value.year) &&
+        exam.subject === value.subject,
+    );
+    if (duplicate) {
+      setExamMessage(
+        `同じ過去問が既に登録されています：${duplicate.school} / ${examYear(duplicate)} / ${duplicate.subject}`,
+      );
+      setSearchText(`${duplicate.school} ${duplicate.year} ${duplicate.subject}`);
+      setListCategory(duplicate.category || duplicate.type || "");
+      return;
+    }
     if (editingId)
       await updateDoc(doc(db, "campuses", cid, "exams", editingId), value);
     else
@@ -912,6 +943,7 @@ function Exams({ cid, data }) {
       });
     setF(initial);
     setEditingId(null);
+    setExamMessage(editingId ? "過去問を更新しました。" : "過去問を登録しました。");
   };
   const edit = (e) => {
     const category = CATEGORY_CONFIG[e.category || e.type]
@@ -943,7 +975,12 @@ function Exams({ cid, data }) {
     setBulkMessage("");
     try {
       const key = (x) =>
-        [x.category || x.type, x.school, String(x.year), x.subject].join("|");
+        [
+          x.category || x.type,
+          normalizeSearch(x.school),
+          String(x.year),
+          x.subject,
+        ].join("|");
       const existing = new Set(data.map(key)),
         items = standardExamPresets().filter((x) => !existing.has(key(x)));
       for (let i = 0; i < items.length; i += 450) {
@@ -968,11 +1005,38 @@ function Exams({ cid, data }) {
       setBulkBusy(false);
     }
   };
+  const listSubjects = [...new Set(data.map((exam) => exam.subject))].filter(
+      Boolean,
+    ),
+    searchTokens = String(searchText || "")
+      .trim()
+      .split(/[\s　]+/u)
+      .map(normalizeSearch)
+      .filter(Boolean),
+    filteredData = data.filter((exam) => {
+      const category = exam.category || exam.type || "未分類",
+        searchable = normalizeSearch(
+          [
+            category,
+            exam.school,
+            exam.year,
+            examYear(exam),
+            exam.subject,
+            `${exam.max}点`,
+          ].join(" "),
+        );
+      return (
+        (!listCategory || category === listCategory) &&
+        (!listSubject || exam.subject === listSubject) &&
+        searchTokens.every((token) => searchable.includes(token))
+      );
+    });
   return (
     <div className="grid">
       <div className="card s4">
         <h2>{editingId ? "過去問を編集" : "過去問追加"}</h2>
         <form className="form" onSubmit={save}>
+          {examMessage && <div className="formWarning f12">{examMessage}</div>}
           <F l="過去問の種類">
             <select
               value={f.category}
@@ -1051,6 +1115,47 @@ function Exams({ cid, data }) {
       </div>
       <div className="card s8">
         <h2>過去問一覧</h2>
+        <div className="examSearch">
+          <F l="学校名・年度・科目などで検索" c="f6">
+            <input
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
+              placeholder="例：日比谷 2025 英語／令和7年度"
+            />
+          </F>
+          <F l="過去問の種類" c="f3">
+            <select value={listCategory} onChange={(e) => setListCategory(e.target.value)}>
+              <option value="">すべて</option>
+              {Object.keys(CATEGORY_CONFIG).map((category) => (
+                <option key={category}>{category}</option>
+              ))}
+            </select>
+          </F>
+          <F l="科目" c="f3">
+            <select value={listSubject} onChange={(e) => setListSubject(e.target.value)}>
+              <option value="">すべて</option>
+              {listSubjects.map((subject) => (
+                <option key={subject}>{subject}</option>
+              ))}
+            </select>
+          </F>
+          <div className="examSearchSummary">
+            {filteredData.length}件 / 全{data.length}件
+            {(searchText || listCategory || listSubject) && (
+              <button
+                className="btn ghost"
+                type="button"
+                onClick={() => {
+                  setSearchText("");
+                  setListCategory("");
+                  setListSubject("");
+                }}
+              >
+                検索条件をクリア
+              </button>
+            )}
+          </div>
+        </div>
         <div className="table">
           <table>
             <thead>
@@ -1064,7 +1169,7 @@ function Exams({ cid, data }) {
               </tr>
             </thead>
             <tbody>
-              {data.map((e) => (
+              {filteredData.map((e) => (
                 <tr key={e.id}>
                   <td>{e.category || e.type || "未分類"}</td>
                   <td>{e.school}</td>
@@ -1091,6 +1196,11 @@ function Exams({ cid, data }) {
                   </td>
                 </tr>
               ))}
+              {!filteredData.length && (
+                <tr>
+                  <td colSpan="6" className="muted">条件に合う過去問はありません。</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>
@@ -1216,7 +1326,8 @@ function Entry({ cid, students, exams, scores }) {
   };
   const [f, setF] = useState(blank),
     [editingId, setEditingId] = useState(null),
-    [warning, setWarning] = useState("");
+    [warning, setWarning] = useState(""),
+    [resultSearch, setResultSearch] = useState("");
   const examCategory = (e) => e.category || e.type || "";
   const gradeSubjects = f.grade
     ? [
@@ -1238,7 +1349,32 @@ function Entry({ cid, students, exams, scores }) {
     choices = filteredExams.filter(
       (e) => !f.year || String(e.year) === String(f.year),
     ),
-    ex = exams.find((e) => e.id === f.examId);
+    ex = exams.find((e) => e.id === f.examId),
+    resultSearchTokens = String(resultSearch || "")
+      .trim()
+      .split(/[\s　]+/u)
+      .map(normalizeSearch)
+      .filter(Boolean),
+    filteredScores = scores.filter((result) => {
+      const student = students.find((item) => item.id === result.studentId) || {},
+        exam = exams.find((item) => item.id === result.examId) || {},
+        searchable = normalizeSearch(
+          [
+            result.date,
+            student.name,
+            student.grade,
+            exam.category || exam.type || "未分類",
+            exam.school,
+            exam.year,
+            examYear(exam),
+            exam.subject,
+            result.score,
+            exam.max,
+            result.teacherComment,
+          ].join(" "),
+        );
+      return resultSearchTokens.every((token) => searchable.includes(token));
+    });
   const save = async (e) => {
     e.preventDefault();
     setWarning("");
@@ -1303,6 +1439,8 @@ function Entry({ cid, students, exams, scores }) {
       score: r.score ?? "",
       teacherComment: r.teacherComment || "",
     });
+    setWarning("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
   };
   return (
     <>
@@ -1441,6 +1579,23 @@ function Entry({ cid, students, exams, scores }) {
       <BatchEntry cid={cid} students={students} exams={exams} scores={scores} />
       <div className="card" style={{ marginTop: 14 }}>
         <h3>登録済み結果</h3>
+        <div className="resultSearch">
+          <F l="生徒名・学校名・年度・科目・採点日などで検索" c="f9">
+            <input
+              value={resultSearch}
+              onChange={(e) => setResultSearch(e.target.value)}
+              placeholder="例：山田 日比谷 英語／2025-09／令和7年度"
+            />
+          </F>
+          <div className="resultSearchActions f3">
+            <span>{filteredScores.length}件 / 全{scores.length}件</span>
+            {resultSearch && (
+              <button className="btn ghost" type="button" onClick={() => setResultSearch("")}>
+                クリア
+              </button>
+            )}
+          </div>
+        </div>
         <div className="table">
           <table>
             <thead>
@@ -1454,7 +1609,7 @@ function Entry({ cid, students, exams, scores }) {
               </tr>
             </thead>
             <tbody>
-              {scores.map((r) => {
+              {filteredScores.map((r) => {
                 let s = students.find((x) => x.id === r.studentId) || {},
                   e = exams.find((x) => x.id === r.examId) || {};
                 return (
@@ -1476,6 +1631,11 @@ function Entry({ cid, students, exams, scores }) {
                   </tr>
                 );
               })}
+              {!filteredScores.length && (
+                <tr>
+                  <td colSpan="6" className="muted">条件に合う採点結果はありません。</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

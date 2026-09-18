@@ -100,6 +100,9 @@ body {
 .f6 {
   grid-column: span 6;
 }
+.f9 {
+  grid-column: span 9;
+}
 .f12 {
   grid-column: span 12;
 }
@@ -210,7 +213,8 @@ td {
   .s8,
   .f3,
   .f4,
-  .f6 {
+  .f6,
+  .f9 {
     grid-column: span 12;
   }
   .studentSummary {
@@ -388,6 +392,35 @@ td {
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+}
+.examSearch,
+.resultSearch {
+  display: grid;
+  grid-template-columns: repeat(12, 1fr);
+  gap: 10px;
+  align-items: end;
+  background: #f8fafc;
+  border: 1px solid #dfe5ec;
+  border-radius: 10px;
+  padding: 12px;
+  margin-bottom: 14px;
+}
+.examSearchSummary {
+  grid-column: span 12;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  color: #667085;
+  font-size: 13px;
+}
+.resultSearchActions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  color: #667085;
+  font-size: 13px;
 }
 .rankingMode,
 .rankingActions {
