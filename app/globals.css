@@ -228,6 +228,9 @@ td {
   .judgmentRow {
     grid-template-columns: 1fr;
   }
+  .exerciseMetrics {
+    grid-template-columns: 1fr 1fr;
+  }
 }
 @media print {
   @page {
@@ -405,6 +408,48 @@ td {
 .scheduleIssueTable .badge {
   display: inline-block;
   white-space: nowrap;
+}
+.exerciseCountCard h2,
+.exerciseReport h3 {
+  margin: 0 0 4px;
+}
+.exerciseCountTable table,
+.exerciseSubjectSummary table {
+  min-width: 820px;
+}
+.exerciseCountTable th,
+.exerciseCountTable td,
+.exerciseSubjectSummary th,
+.exerciseSubjectSummary td {
+  text-align: center;
+  white-space: nowrap;
+}
+.exerciseCountTable th:nth-child(2),
+.exerciseCountTable td:nth-child(2) {
+  text-align: left;
+}
+.exerciseMetrics {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.exerciseMetrics div {
+  background: #f8fafc;
+  border-radius: 8px;
+  padding: 10px;
+}
+.exerciseMetrics span,
+.exerciseMetrics b {
+  display: block;
+}
+.exerciseMetrics span {
+  color: #667085;
+  font-size: 12px;
+}
+.exerciseMetrics b {
+  margin-top: 3px;
+  font-size: 17px;
 }
 .listHead {
   display: flex;
@@ -779,5 +824,20 @@ td {
   }
   .scheduleIssueTable tr {
     break-inside: avoid;
+  }
+  .exerciseReport {
+    break-inside: avoid;
+  }
+  .exerciseSubjectSummary {
+    overflow: visible;
+  }
+  .exerciseSubjectSummary table {
+    min-width: 0;
+    font-size: 8.5pt;
+  }
+}
+@media (max-width: 800px) {
+  .exerciseMetrics {
+    grid-template-columns: 1fr 1fr;
   }
 }

@@ -226,6 +226,69 @@ const normalizeSearch = (value) =>
     .normalize("NFKC")
     .toLocaleLowerCase("ja")
     .replace(/\s+/gu, "");
+const GRADE_EXERCISE_SUBJECTS = {
+  小6: ["国語", "算数", "理科", "社会", "適性検査Ⅰ", "適性検査Ⅱ", "適性検査Ⅲ"],
+  中3: ["国語", "数学", "英語", "理科", "社会"],
+};
+function exerciseCountsForStudent({
+  studentId,
+  grade,
+  exams,
+  scores,
+  fromDate = "",
+  toDate = "",
+  categoryFilter = "",
+  subjectFilter = "",
+}) {
+  const subjects = Object.fromEntries(
+    (GRADE_EXERCISE_SUBJECTS[grade] || []).map((x) => [x, 0]),
+  );
+  scores.forEach((score) => {
+    if (
+      score.studentId !== studentId ||
+      (fromDate && score.date < fromDate) ||
+      (toDate && score.date > toDate)
+    )
+      return;
+    const exam = exams.find((x) => x.id === score.examId),
+      category = exam?.category || exam?.type || "",
+      subject = analysisSubject(exam?.subject || "");
+    if (
+      CATEGORY_CONFIG[category]?.grade !== grade ||
+      (categoryFilter && category !== categoryFilter) ||
+      (subjectFilter && subject !== subjectFilter) ||
+      !Object.prototype.hasOwnProperty.call(subjects, subject)
+    )
+      return;
+    subjects[subject] += 1;
+  });
+  return {
+    subjects,
+    total: Object.values(subjects).reduce((sum, count) => sum + count, 0),
+  };
+}
+function exerciseBenchmark(rows, total) {
+  if (rows.length < 2)
+    return {
+      rank: 1,
+      median: rows[0]?.total ?? total,
+      label: "比較対象不足",
+      className: "gray",
+    };
+  const totals = rows.map((row) => row.total).sort((a, b) => a - b),
+    middle = Math.floor(totals.length / 2),
+    median =
+      totals.length % 2
+        ? totals[middle]
+        : (totals[middle - 1] + totals[middle]) / 2,
+    rank = 1 + totals.filter((value) => value > total).length,
+    topLimit = Math.max(1, Math.ceil(rows.length * 0.25));
+  if (total < median)
+    return { rank, median, label: "演習が遅れています", className: "bad" };
+  if (rank <= topLimit)
+    return { rank, median, label: "校舎内で進んでいる方", className: "ok" };
+  return { rank, median, label: "演習量OK", className: "warn" };
+}
 function F({ l, c = "f12", children }) {
   return (
     <div className={c}>
@@ -460,6 +523,7 @@ function App({ profile }) {
           <Detail
             campusId={cid}
             students={reportStudents}
+            comparisonStudents={activeStudents}
             exams={activeExams}
             scores={activeScores}
             sid={sid}
@@ -590,7 +654,35 @@ function Dash({ campusId, students, exams, scores }) {
         pending: rows.filter((row) => row.status === "pending").length,
         onTime: rows.filter((row) => row.status === "onTime").length,
       };
-    });
+    }),
+    exerciseRowsByGrade = Object.fromEntries(
+      GRADES.map((grade) => {
+        const baseRows = students
+          .filter((student) => student.grade === grade)
+          .map((student) => ({
+            student,
+            ...exerciseCountsForStudent({
+              studentId: student.id,
+              grade,
+              exams,
+              scores,
+            }),
+          }));
+        return [
+          grade,
+          baseRows
+            .map((row) => ({
+              ...row,
+              benchmark: exerciseBenchmark(baseRows, row.total),
+            }))
+            .sort(
+              (a, b) =>
+                b.total - a.total ||
+                String(a.student.name).localeCompare(String(b.student.name), "ja"),
+            ),
+        ];
+      }),
+    );
   return (
     <div className="grid">
       {[
@@ -688,6 +780,58 @@ function Dash({ campusId, students, exams, scores }) {
           )}
         </div>
       )}
+      {GRADES.map((grade) => {
+        const exerciseRows = exerciseRowsByGrade[grade] || [],
+          noExercise = exerciseRows.filter((row) => row.total === 0);
+        if (!exerciseRows.length) return null;
+        return (
+          <div className="card s12 exerciseCountCard" key={grade}>
+            <div className="listHead">
+              <div>
+                <h2>{grade} 過去問演習数</h2>
+                <p className="muted">
+                  採点結果1件を演習1回として、科目別・生徒別に集計しています。
+                </p>
+              </div>
+              {noExercise.length > 0 && (
+                <span className="badge bad">演習0回 {noExercise.length}人</span>
+              )}
+            </div>
+            <div className="table exerciseCountTable">
+              <table>
+                <thead>
+                  <tr>
+                    <th>順位</th>
+                    <th>生徒</th>
+                    {GRADE_EXERCISE_SUBJECTS[grade].map((subject) => (
+                      <th key={subject}>{subject}</th>
+                    ))}
+                    <th>合計</th>
+                    <th>校舎内比較</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {exerciseRows.map((row) => (
+                    <tr key={row.student.id}>
+                      <td>{row.benchmark.rank}位</td>
+                      <td><b>{row.student.name}</b></td>
+                      {GRADE_EXERCISE_SUBJECTS[grade].map((subject) => (
+                        <td key={subject}>{row.subjects[subject]}回</td>
+                      ))}
+                      <td><b>{row.total}回</b></td>
+                      <td>
+                        <span className={`badge ${row.benchmark.className}`}>
+                          {row.benchmark.label}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        );
+      })}
       <div className="card s12 attentionCard">
         <h2>注目生徒</h2>
         <p className="muted">
@@ -2005,6 +2149,7 @@ function Ranking({ campusName, students, exams, scores }) {
   const [toDate, setToDate] = useState("");
   const [grade, setGrade] = useState("");
   const [volumeCategory, setVolumeCategory] = useState("");
+  const [volumeSubject, setVolumeSubject] = useState("");
   const [publishCount, setPublishCount] = useState(5);
   const [nameMode, setNameMode] = useState("full");
   const [showLower, setShowLower] = useState(true);
@@ -2032,6 +2177,11 @@ function Ranking({ campusName, students, exams, scores }) {
   const choices = yearExams.filter(
     (e) => !subject || e.subject === subject,
   );
+  const volumeSubjects = volumeCategory
+    ? [...new Set((CATEGORY_CONFIG[volumeCategory]?.subjects || []).map(analysisSubject))]
+    : grade
+      ? GRADE_EXERCISE_SUBJECTS[grade] || []
+      : [...new Set(Object.values(GRADE_EXERCISE_SUBJECTS).flat())];
   const selectedExam = exams.find((e) => e.id === examId);
   const resetScoreFilters = () => {
     setCategory("");
@@ -2088,7 +2238,8 @@ function Ranking({ campusName, students, exams, scores }) {
       return (
         (!fromDate || r.date >= fromDate) &&
         (!toDate || r.date <= toDate) &&
-        (!volumeCategory || examCategory(e || {}) === volumeCategory)
+        (!volumeCategory || examCategory(e || {}) === volumeCategory) &&
+        (!volumeSubject || analysisSubject(e?.subject) === volumeSubject)
       );
     });
     const counts = new Map();
@@ -2127,6 +2278,7 @@ function Ranking({ campusName, students, exams, scores }) {
     toDate,
     grade,
     volumeCategory,
+    volumeSubject,
     includeZero,
     tieMode,
   ]);
@@ -2154,7 +2306,7 @@ function Ranking({ campusName, students, exams, scores }) {
             className={`btn ${mode === "volume" ? "primary" : "ghost"}`}
             onClick={() => setMode("volume")}
           >
-            期間別 採点数ランキング
+            期間別 過去問演習数ランキング
           </button>
         </div>
         <div className="rankingSettings">
@@ -2196,7 +2348,7 @@ function Ranking({ campusName, students, exams, scores }) {
                 checked={includeZero}
                 onChange={(e) => setIncludeZero(e.target.checked)}
               />
-              採点数0回の生徒も表示
+              演習数0回の生徒も表示
             </label>
           )}
         </div>
@@ -2286,6 +2438,11 @@ function Ranking({ campusName, students, exams, scores }) {
                     CATEGORY_CONFIG[volumeCategory]?.grade !== e.target.value
                   )
                     setVolumeCategory("");
+                  if (
+                    volumeSubject &&
+                    !(GRADE_EXERCISE_SUBJECTS[e.target.value] || []).includes(volumeSubject)
+                  )
+                    setVolumeSubject("");
                 }}
               >
                 <option value="">全学年</option>
@@ -2293,11 +2450,23 @@ function Ranking({ campusName, students, exams, scores }) {
               </select>
             </F>
             <F l="過去問の種類" c="f3">
-              <select value={volumeCategory} onChange={(e) => setVolumeCategory(e.target.value)}>
+              <select
+                value={volumeCategory}
+                onChange={(e) => {
+                  setVolumeCategory(e.target.value);
+                  setVolumeSubject("");
+                }}
+              >
                 <option value="">すべて</option>
                 {categories
                   .filter((x) => !grade || CATEGORY_CONFIG[x]?.grade === grade)
                   .map((x) => <option key={x}>{x}</option>)}
+              </select>
+            </F>
+            <F l="科目" c="f3">
+              <select value={volumeSubject} onChange={(e) => setVolumeSubject(e.target.value)}>
+                <option value="">全科目</option>
+                {volumeSubjects.map((x) => <option key={x}>{x}</option>)}
               </select>
             </F>
           </div>
@@ -2320,7 +2489,7 @@ function Ranking({ campusName, students, exams, scores }) {
             <h1>
               {mode === "score"
                 ? "過去問 得点ランキング"
-                : "過去問チャレンジランキング"}
+                : "過去問演習数ランキング"}
             </h1>
           </div>
           <div className="muted">作成日：{createdText}</div>
@@ -2365,20 +2534,21 @@ function Ranking({ campusName, students, exams, scores }) {
                 {grade || CATEGORY_CONFIG[volumeCategory]?.grade || "全学年"}
               </span>
               <span>{volumeCategory || "全種類"}</span>
+              <span>{volumeSubject || "全科目"}</span>
             </div>
             <RankingTable
               rows={volumeRows}
               publishCount={publishCount}
               nameMode={nameMode}
               showLower={showLower}
-              valueHeader="採点した過去問数"
+              valueHeader="過去問演習数"
               renderValue={(r) => `${r.count}回`}
             />
             {!volumeRows.length && (
               <div className="rankingEmpty">条件に合う生徒がいません。</div>
             )}
             <p className="rankingNote">
-              指定期間内に登録された採点結果1件を、過去問1回として集計しています。氏名は設定した上位人数のみ表示します。
+              指定期間内に登録された採点結果1件を、過去問演習1回として集計しています。氏名は設定した上位人数のみ表示します。
             </p>
           </>
         )}
@@ -2441,7 +2611,17 @@ function RankingTable({
   );
 }
 
-function Detail({ campusId, students, exams, scores, sid, setSid, inter, setInter }) {
+function Detail({
+  campusId,
+  students,
+  comparisonStudents,
+  exams,
+  scores,
+  sid,
+  setSid,
+  inter,
+  setInter,
+}) {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -2469,7 +2649,7 @@ function Detail({ campusId, students, exams, scores, sid, setSid, inter, setInte
     ...new Set(
       (categoryFilter ? [categoryFilter] : allCategoryNames).flatMap(
         (category) => CATEGORY_CONFIG[category]?.subjects || [],
-      ),
+      ).map(analysisSubject),
     ),
   ];
   const periodText =
@@ -2560,6 +2740,41 @@ function Detail({ campusId, students, exams, scores, sid, setSid, inter, setInte
       selectedScheduleRows.filter((row) => row.status === status).length,
     ]),
   );
+  const exerciseComparisonRows = (comparisonStudents || students)
+    .filter((student) => student.grade === s?.grade)
+    .map((student) => ({
+      student,
+      ...exerciseCountsForStudent({
+        studentId: student.id,
+        grade: student.grade,
+        exams,
+        scores,
+        fromDate,
+        toDate,
+        categoryFilter,
+        subjectFilter,
+      }),
+    }));
+  const selectedExercise = exerciseCountsForStudent({
+    studentId: s?.id,
+    grade: s?.grade,
+    exams,
+    scores,
+    fromDate,
+    toDate,
+    categoryFilter,
+    subjectFilter,
+  });
+  const exerciseBenchmarkRows = exerciseComparisonRows.some(
+    (row) => row.student.id === s?.id,
+  )
+    ? exerciseComparisonRows
+    : [...exerciseComparisonRows, { student: s, ...selectedExercise }];
+  const selectedExerciseBenchmark = exerciseBenchmark(
+    exerciseBenchmarkRows,
+    selectedExercise.total,
+  );
+  const exerciseTotals = exerciseComparisonRows.map((row) => row.total);
 
   if (!s) return <div className="card">生徒を選択してください。</div>;
 
@@ -2781,6 +2996,50 @@ function Detail({ campusId, students, exams, scores, sid, setSid, inter, setInte
             </div>
           );
         })}
+
+        <div className="card s12 exerciseReport">
+          <div className="reportHead">
+            <div>
+              <h3>過去問演習数・校舎内比較</h3>
+              <div className="muted">
+                同じ学年の在籍生徒を、現在の期間・種類・科目条件で比較
+              </div>
+            </div>
+            <span className={`badge ${selectedExerciseBenchmark.className}`}>
+              {selectedExerciseBenchmark.label}
+            </span>
+          </div>
+          <div className="exerciseMetrics">
+            <div><span>本人の演習数</span><b>{selectedExercise.total}回</b></div>
+            <div><span>校舎内順位</span><b>{selectedExerciseBenchmark.rank}位 / {exerciseBenchmarkRows.length || 1}人</b></div>
+            <div><span>最多</span><b>{exerciseTotals.length ? Math.max(...exerciseTotals) : selectedExercise.total}回</b></div>
+            <div><span>中央値</span><b>{selectedExerciseBenchmark.median}回</b></div>
+            <div><span>最少</span><b>{exerciseTotals.length ? Math.min(...exerciseTotals) : selectedExercise.total}回</b></div>
+          </div>
+          <div className="table exerciseSubjectSummary">
+            <table>
+              <thead>
+                <tr>
+                  {(GRADE_EXERCISE_SUBJECTS[s.grade] || []).map((subject) => (
+                    <th key={subject}>{subject}</th>
+                  ))}
+                  <th>合計</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  {(GRADE_EXERCISE_SUBJECTS[s.grade] || []).map((subject) => (
+                    <td key={subject}>{selectedExercise.subjects[subject]}回</td>
+                  ))}
+                  <td><b>{selectedExercise.total}回</b></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p className="chartLegend">
+            上位25％は「校舎内で進んでいる方」、中央値以上は「演習量OK」、中央値未満は「演習が遅れています」と判定します。
+          </p>
+        </div>
 
         <div className="card s12">
           <h3>過去問履歴</h3>
