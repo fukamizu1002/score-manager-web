@@ -2634,6 +2634,11 @@ function Detail({ campusId, students, exams, scores, sid, setSid, inter, setInte
         <p className="muted">
           条件に合う採点結果：{rows.length}件（{periodText}）
         </p>
+        {hasGrade6Schedule(campusId) && s?.grade === "小6" && (
+          <p className="muted">
+            スケジュール進捗には、同じ開始日・終了日を「予定日」の期間として適用します。
+          </p>
+        )}
         <button className="btn ghost" onClick={() => setInter(!inter)}>
           {inter ? "管理画面へ" : "面談モード"}
         </button>{" "}
