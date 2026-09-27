@@ -386,6 +386,26 @@ td {
 .attentionCard h2 {
   margin-bottom: 4px;
 }
+.scheduleCard h2,
+.scheduleReport h3 {
+  margin: 0 0 4px;
+}
+.scheduleTotals {
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.scheduleIssueTable {
+  max-height: 430px;
+}
+.scheduleIssueTable td {
+  vertical-align: top;
+}
+.scheduleIssueTable .badge {
+  display: inline-block;
+  white-space: nowrap;
+}
 .listHead {
   display: flex;
   justify-content: space-between;
@@ -749,5 +769,15 @@ td {
   }
   .mockReport .mockChart {
     height: 155px;
+  }
+  .scheduleReport {
+    break-inside: auto;
+  }
+  .scheduleIssueTable {
+    max-height: none;
+    overflow: visible;
+  }
+  .scheduleIssueTable tr {
+    break-inside: avoid;
   }
 }

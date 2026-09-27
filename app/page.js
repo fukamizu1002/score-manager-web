@@ -3,6 +3,11 @@ import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../lib/firebase";
 import { MockAnalysis, MockManager } from "./mock";
 import {
+  grade6ScheduleRows,
+  hasGrade6Schedule,
+  scheduleStatus,
+} from "./schedule";
+import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
   signOut,
@@ -433,6 +438,7 @@ function App({ profile }) {
       <main className="container">
         {tab === "dash" && (
           <Dash
+            campusId={cid}
             students={activeStudents}
             exams={activeExams}
             scores={currentScores}
@@ -452,6 +458,7 @@ function App({ profile }) {
         )}
         {tab === "detail" && (
           <Detail
+            campusId={cid}
             students={reportStudents}
             exams={activeExams}
             scores={activeScores}
@@ -491,7 +498,7 @@ function App({ profile }) {
     </div>
   );
 }
-function Dash({ students, exams, scores }) {
+function Dash({ campusId, students, exams, scores }) {
   const dates = scores
       .map((x) => x.date)
       .filter(Boolean)
@@ -559,7 +566,31 @@ function Dash({ students, exams, scores }) {
         return { student, reasons, latestDate: latestScore?.date || "—" };
       })
       .filter((row) => row.reasons.length)
-      .sort((a, b) => b.reasons.length - a.reasons.length);
+      .sort((a, b) => b.reasons.length - a.reasons.length),
+    scheduleStudents = students.filter((student) => student.grade === "小6"),
+    scheduleRows = hasGrade6Schedule(campusId)
+      ? scheduleStudents.flatMap((student) =>
+          grade6ScheduleRows({ student, exams, scores }).map((row) => ({
+            ...row,
+            student,
+          })),
+        )
+      : [],
+    scheduleIssues = scheduleRows
+      .filter((row) => ["late", "missing", "unmatched"].includes(row.status))
+      .sort((a, b) =>
+        String(b.scheduledDate).localeCompare(String(a.scheduledDate)),
+      ),
+    scheduleStudentSummary = scheduleStudents.map((student) => {
+      const rows = scheduleRows.filter((row) => row.student.id === student.id);
+      return {
+        student,
+        late: rows.filter((row) => row.status === "late").length,
+        missing: rows.filter((row) => row.status === "missing").length,
+        pending: rows.filter((row) => row.status === "pending").length,
+        onTime: rows.filter((row) => row.status === "onTime").length,
+      };
+    });
   return (
     <div className="grid">
       {[
@@ -573,6 +604,90 @@ function Dash({ students, exams, scores }) {
           <div className="stat">{x[1]}</div>
         </div>
       ))}
+      {hasGrade6Schedule(campusId) && (
+        <div className="card s12 scheduleCard">
+          <div className="listHead">
+            <div>
+              <h2>小6 都立中過去問スケジュール</h2>
+              <p className="muted">
+                予定日から3日後までを期限内とし、採点日で判定します。令和4～8年度が対象です。
+              </p>
+            </div>
+            <div className="scheduleTotals">
+              <span className="badge warn">
+                期限後入力 {scheduleRows.filter((row) => row.status === "late").length}件
+              </span>
+              <span className="badge bad">
+                未提出 {scheduleRows.filter((row) => row.status === "missing").length}件
+              </span>
+            </div>
+          </div>
+          {!scheduleStudents.length ? (
+            <p>在籍中の小6生は登録されていません。</p>
+          ) : (
+            <>
+              <div className="table">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>生徒</th>
+                      <th>期限内</th>
+                      <th>期限後入力</th>
+                      <th>未提出</th>
+                      <th>期限前</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {scheduleStudentSummary.map((row) => (
+                      <tr key={row.student.id}>
+                        <td><b>{row.student.name}</b></td>
+                        <td>{row.onTime}件</td>
+                        <td>{row.late}件</td>
+                        <td>{row.missing}件</td>
+                        <td>{row.pending}件</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <h3>確認が必要な過去問</h3>
+              {!scheduleIssues.length ? (
+                <p>現在、期限後入力・未提出はありません。</p>
+              ) : (
+                <div className="table scheduleIssueTable">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>生徒</th>
+                        <th>予定日</th>
+                        <th>入力期限</th>
+                        <th>過去問</th>
+                        <th>採点日</th>
+                        <th>判定</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {scheduleIssues.map((row) => {
+                        const status = scheduleStatus[row.status];
+                        return (
+                          <tr key={`${row.student.id}-${row.id}`}>
+                            <td>{row.student.name}</td>
+                            <td>{row.scheduledDate}</td>
+                            <td>{row.graceEnd}</td>
+                            <td>{eraYear(row.year)}・{row.school}・{row.exam?.subject || row.subject}</td>
+                            <td>{row.result?.date || "—"}</td>
+                            <td><span className={`badge ${status.className}`}>{status.label}</span></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      )}
       <div className="card s12 attentionCard">
         <h2>注目生徒</h2>
         <p className="muted">
@@ -2326,7 +2441,7 @@ function RankingTable({
   );
 }
 
-function Detail({ students, exams, scores, sid, setSid, inter, setInter }) {
+function Detail({ campusId, students, exams, scores, sid, setSid, inter, setInter }) {
   const [fromDate, setFromDate] = useState("");
   const [toDate, setToDate] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -2425,6 +2540,25 @@ function Detail({ students, exams, scores, sid, setSid, inter, setInter }) {
         }),
       ),
     [categoryNames.join("|"), rows, exams, s],
+  );
+  const selectedScheduleRows = hasGrade6Schedule(campusId)
+    ? grade6ScheduleRows({ student: s, exams, scores }).filter(
+        (row) =>
+          (!fromDate || row.scheduledDate >= fromDate) &&
+          (!toDate || row.scheduledDate <= toDate) &&
+          (!categoryFilter || categoryFilter === "都立中") &&
+          (!subjectFilter ||
+            analysisSubject(row.exam?.subject || row.subject) === subjectFilter),
+      )
+    : [];
+  const selectedScheduleIssues = selectedScheduleRows.filter((row) =>
+    ["late", "missing", "unmatched"].includes(row.status),
+  );
+  const scheduleCounts = Object.fromEntries(
+    ["onTime", "late", "missing", "pending", "unmatched"].map((status) => [
+      status,
+      selectedScheduleRows.filter((row) => row.status === status).length,
+    ]),
   );
 
   if (!s) return <div className="card">生徒を選択してください。</div>;
@@ -2689,6 +2823,68 @@ function Detail({ students, exams, scores, sid, setSid, inter, setInter }) {
           </div>
         </div>
 
+        {hasGrade6Schedule(campusId) &&
+          s.grade === "小6" &&
+          (!categoryFilter || categoryFilter === "都立中") && (
+            <div className="card s12 scheduleReport">
+              <div className="reportHead">
+                <div>
+                  <h3>都立中過去問 スケジュール進捗</h3>
+                  <div className="muted">
+                    予定日から3日後までを期限内として、得点の採点日で判定
+                  </div>
+                </div>
+                <div className="scheduleTotals">
+                  <span className="badge ok">期限内 {scheduleCounts.onTime}件</span>
+                  <span className="badge warn">期限後入力 {scheduleCounts.late}件</span>
+                  <span className="badge bad">未提出 {scheduleCounts.missing}件</span>
+                  <span className="badge gray">期限前 {scheduleCounts.pending}件</span>
+                </div>
+              </div>
+              <p>
+                対象：令和4～8年度 / スケジュール該当 {selectedScheduleRows.length}件 / 要確認 {selectedScheduleIssues.length}件
+              </p>
+              {!selectedScheduleIssues.length ? (
+                <p>この条件では、期限後入力・未提出はありません。</p>
+              ) : (
+                <div className="table scheduleIssueTable">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>予定日</th>
+                        <th>入力期限</th>
+                        <th>年度</th>
+                        <th>学校・問題</th>
+                        <th>採点日</th>
+                        <th>判定</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {selectedScheduleIssues.map((row) => {
+                        const status = scheduleStatus[row.status];
+                        return (
+                          <tr key={row.id}>
+                            <td>{row.scheduledDate}</td>
+                            <td>{row.graceEnd}</td>
+                            <td>{eraYear(row.year)}</td>
+                            <td>{row.school}・{row.exam?.subject || row.subject}</td>
+                            <td>{row.result?.date || "—"}</td>
+                            <td><span className={`badge ${status.className}`}>{status.label}</span></td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              {scheduleCounts.unmatched > 0 && (
+                <p className="formWarning">
+                  過去問マスターと照合できない予定が {scheduleCounts.unmatched}件あります。
+                </p>
+              )}
+            </div>
+          )}
+
         {categoryNames.map((category) => {
           const d = categoryData[category];
           return (
@@ -2733,6 +2929,11 @@ function Detail({ students, exams, scores, sid, setSid, inter, setInter }) {
                     ? `${d.gap >= 0 ? "+" : ""}${d.gap.toFixed(1)}pt`
                     : "算出不可"}
                 </p>
+                {category === "都立中" && s.grade === "小6" && hasGrade6Schedule(campusId) && (
+                  <p>
+                    <b>スケジュール進捗：</b>期限内 {scheduleCounts.onTime}件 / 期限後入力 {scheduleCounts.late}件 / 未提出 {scheduleCounts.missing}件 / 期限前 {scheduleCounts.pending}件
+                  </p>
+                )}
                 <hr />
                 {d.stats.map((x) => (
                   <p key={x.subject}>
