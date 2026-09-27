@@ -610,7 +610,7 @@ function Dash({ campusId, students, exams, scores }) {
             <div>
               <h2>小6 都立中過去問スケジュール</h2>
               <p className="muted">
-                予定日から3日後までを期限内とし、採点日で判定します。令和4～8年度が対象です。
+                予定日から5日後までを期限内とし、採点日で判定します。令和4～8年度が対象です。
               </p>
             </div>
             <div className="scheduleTotals">
@@ -2836,7 +2836,7 @@ function Detail({ campusId, students, exams, scores, sid, setSid, inter, setInte
                 <div>
                   <h3>都立中過去問 スケジュール進捗</h3>
                   <div className="muted">
-                    予定日から3日後までを期限内として、得点の採点日で判定
+                    予定日から5日後までを期限内として、得点の採点日で判定
                   </div>
                 </div>
                 <div className="scheduleTotals">

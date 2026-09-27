@@ -155,7 +155,7 @@ export function grade6ScheduleRows({ student, exams, scores, asOf = localToday()
           .slice()
           .sort((a, b) => String(a.date).localeCompare(String(b.date)))[0]
       : null;
-    const graceEnd = addDays(item.scheduledDate, 3);
+    const graceEnd = addDays(item.scheduledDate, 5);
     let status = "pending";
     if (!exam) status = "unmatched";
     else if (result) status = result.date <= graceEnd ? "onTime" : "late";
