@@ -23,7 +23,16 @@ const SUBJECTS = {
     "適性検査Ⅱ",
     "適性検査Ⅲ",
   ],
-  中3: ["国語", "数学", "英語", "理科", "社会"],
+  中3: ["国語", "数学", "英語", "社会", "理科"],
+};
+const orderedMockSubjects = (exam) => {
+  const order = SUBJECTS[exam?.grade] || [];
+  return [...(exam?.subjects || [])].sort((a, b) => {
+    const aIndex = order.indexOf(a.name),
+      bIndex = order.indexOf(b.name);
+    return (aIndex < 0 ? order.length : aIndex) -
+      (bIndex < 0 ? order.length : bIndex);
+  });
 };
 const JUDGMENTS = ["S", "A", "B", "C", "D", "E"];
 const today = () => new Date().toISOString().slice(0, 10);
@@ -479,7 +488,7 @@ export function MockManager({ cid, students }) {
                     <tr><th>科目</th><th>得点</th><th>満点</th><th>偏差値</th></tr>
                   </thead>
                   <tbody>
-                    {(selectedExam.subjects || []).map((subject) => {
+                    {orderedMockSubjects(selectedExam).map((subject) => {
                       const result = resultForm.subjectResults?.[subject.name] || {};
                       return (
                         <tr key={subject.name}>
@@ -840,7 +849,7 @@ function MockBatchEntry({ cid, students, exams, results }) {
               <thead>
                 <tr>
                   <th rowSpan="2">生徒</th>
-                  {(exam.subjects || []).map((subject) => (
+                  {orderedMockSubjects(exam).map((subject) => (
                     <th colSpan="2" key={subject.name}>
                       {subject.name}（{subject.max}点）
                     </th>
@@ -850,7 +859,7 @@ function MockBatchEntry({ cid, students, exams, results }) {
                   <th rowSpan="2">第一志望判定</th>
                 </tr>
                 <tr>
-                  {(exam.subjects || []).flatMap((subject) => [
+                  {orderedMockSubjects(exam).flatMap((subject) => [
                     <th key={`${subject.name}-score`}>得点</th>,
                     <th key={`${subject.name}-deviation`}>偏差値</th>,
                   ])}
@@ -866,7 +875,7 @@ function MockBatchEntry({ cid, students, exams, results }) {
                         <b>{student.name}</b>
                         {row.existingId && <small>登録済み</small>}
                       </td>
-                      {(exam.subjects || []).flatMap((subject) => {
+                      {orderedMockSubjects(exam).flatMap((subject) => {
                         const value = row.subjects?.[subject.name] || {};
                         return [
                           <td key={`${student.id}-${subject.name}-score`}>
