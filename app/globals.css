@@ -389,26 +389,6 @@ td {
 .attentionCard h2 {
   margin-bottom: 4px;
 }
-.scheduleCard h2,
-.scheduleReport h3 {
-  margin: 0 0 4px;
-}
-.scheduleTotals {
-  display: flex;
-  gap: 7px;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-}
-.scheduleIssueTable {
-  max-height: 430px;
-}
-.scheduleIssueTable td {
-  vertical-align: top;
-}
-.scheduleIssueTable .badge {
-  display: inline-block;
-  white-space: nowrap;
-}
 .exerciseCountCard h2,
 .exerciseReport h3 {
   margin: 0 0 4px;
@@ -749,6 +729,100 @@ td {
 .judgmentHead select {
   width: min(360px, 100%);
 }
+.termManager h2,
+.termReport h2,
+.termReport h3 {
+  margin-top: 0;
+}
+.termScoreGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  background: #f8fafc;
+  border: 1px solid #dfe5ec;
+  border-radius: 10px;
+}
+.termScoreInput {
+  margin: 0;
+  color: #172033;
+  font-weight: 700;
+}
+.termScoreInput span,
+.termScoreInput small {
+  display: block;
+}
+.termScoreInput input {
+  margin-top: 5px;
+}
+.termScoreInput small {
+  margin-top: 4px;
+  font-weight: 700;
+}
+.termSaveRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.termMessage {
+  color: #166534;
+  font-weight: 700;
+}
+.termUp {
+  color: #166534;
+}
+.termDown {
+  color: #b42318;
+}
+.termSame {
+  color: #667085;
+}
+.termLatestGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+.termLatestGrid div {
+  background: #f8fafc;
+  border-radius: 9px;
+  padding: 10px;
+}
+.termLatestGrid span,
+.termLatestGrid b,
+.termLatestGrid small {
+  display: block;
+}
+.termLatestGrid b {
+  margin: 3px 0;
+  font-size: 22px;
+}
+.termLatestGrid small {
+  font-weight: 700;
+}
+.termChart {
+  height: 235px;
+}
+.termSubjectChart .termChart {
+  height: 190px;
+}
+.termAnalysisTable table {
+  min-width: 1150px;
+}
+.termAnalysisTable th,
+.termAnalysisTable td {
+  text-align: center;
+  white-space: nowrap;
+}
+.termAnalysisTable th:first-child,
+.termAnalysisTable td:first-child {
+  text-align: left;
+}
+.termAnalysisTable small {
+  display: block;
+  font-weight: 700;
+  margin-top: 2px;
+}
 @media print {
   .aiSummary {
     break-before: page;
@@ -815,16 +889,6 @@ td {
   .mockReport .mockChart {
     height: 155px;
   }
-  .scheduleReport {
-    break-inside: auto;
-  }
-  .scheduleIssueTable {
-    max-height: none;
-    overflow: visible;
-  }
-  .scheduleIssueTable tr {
-    break-inside: avoid;
-  }
   .exerciseReport {
     break-inside: avoid;
   }
@@ -835,9 +899,29 @@ td {
     min-width: 0;
     font-size: 8.5pt;
   }
+  .termReport {
+    margin: 0;
+  }
+  .termReport .card {
+    break-inside: avoid;
+  }
+  .termReport .termChart {
+    height: 155px;
+  }
+  .termAnalysisTable {
+    overflow: visible;
+  }
+  .termAnalysisTable table {
+    min-width: 0;
+    font-size: 7pt;
+  }
 }
 @media (max-width: 800px) {
   .exerciseMetrics {
+    grid-template-columns: 1fr 1fr;
+  }
+  .termScoreGrid,
+  .termLatestGrid {
     grid-template-columns: 1fr 1fr;
   }
 }
