@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { auth, db } from "../lib/firebase";
 import { MockAnalysis, MockManager } from "./mock";
 import { TermAnalysis, TermManager } from "./term";
+import { ReviewManager } from "./review";
 import {
   onAuthStateChanged,
   signInWithEmailAndPassword,
@@ -388,6 +389,7 @@ function App({ profile }) {
     [students, setStudents] = useState([]),
     [exams, setExams] = useState([]),
     [scores, setScores] = useState([]),
+    [reviews, setReviews] = useState([]),
     [sid, setSid] = useState(""),
     [inter, setInter] = useState(false);
   useEffect(() => {
@@ -434,10 +436,15 @@ function App({ profile }) {
       ),
       (s) => setScores(s.docs.map((d) => ({ id: d.id, ...d.data() }))),
     );
+    const un4 = onSnapshot(
+      collection(db, "campuses", cid, "reviewNotes"),
+      (s) => setReviews(s.docs.map((d) => ({ id: d.id, ...d.data() }))),
+    );
     return () => {
       un1();
       un2();
       un3();
+      un4();
     };
   }, [cid]);
   useEffect(() => {
@@ -458,6 +465,11 @@ function App({ profile }) {
     ),
     currentScores = activeScores.filter((score) =>
       activeStudents.some((student) => student.id === score.studentId),
+    ),
+    activeReviews = reviews.filter(
+      (review) =>
+        activeStudents.some((student) => student.id === review.studentId) &&
+        activeExams.some((exam) => exam.id === review.examId),
     );
   return (
     <div className={inter ? "interview" : ""}>
@@ -471,6 +483,7 @@ function App({ profile }) {
             {[
               ["dash", "ダッシュボード"],
               ["entry", "結果入力"],
+              ["reviews", "復習ノート"],
               ["students", "生徒"],
               ["exams", "過去問"],
               ["detail", "面談・分析"],
@@ -516,6 +529,16 @@ function App({ profile }) {
             scores={currentScores}
           />
         )}
+        {tab === "reviews" && (
+          <ReviewManager
+            cid={cid}
+            campusName={campusName}
+            students={activeStudents}
+            exams={activeExams}
+            scores={currentScores}
+            reviews={activeReviews}
+          />
+        )}
         {tab === "detail" && (
           <Detail
             students={reportStudents}
@@ -534,6 +557,7 @@ function App({ profile }) {
             students={activeStudents}
             exams={activeExams}
             scores={currentScores}
+            reviews={activeReviews}
           />
         )}
         {tab === "mocks" && (
@@ -2036,7 +2060,7 @@ function BatchEntry({ cid, students, exams, scores }) {
   );
 }
 
-function Ranking({ campusName, students, exams, scores }) {
+function Ranking({ campusName, students, exams, scores, reviews }) {
   const [mode, setMode] = useState("score");
   const [category, setCategory] = useState("");
   const [school, setSchool] = useState("");
@@ -2180,11 +2204,76 @@ function Ranking({ campusName, students, exams, scores }) {
     includeZero,
     tieMode,
   ]);
+  const reviewRows = useMemo(() => {
+    const counts = new Map();
+    reviews
+      .filter((review) => {
+        const exam = exams.find((item) => item.id === review.examId);
+        return (
+          (!fromDate || review.submissionDate >= fromDate) &&
+          (!toDate || review.submissionDate <= toDate) &&
+          (!volumeCategory || examCategory(exam || {}) === volumeCategory) &&
+          (!volumeSubject || analysisSubject(exam?.subject) === volumeSubject)
+        );
+      })
+      .forEach((review) =>
+        counts.set(review.studentId, (counts.get(review.studentId) || 0) + 1),
+      );
+    const ranked = students
+      .filter(
+        (student) =>
+          (!grade || student.grade === grade) &&
+          (!volumeCategory ||
+            student.grade === CATEGORY_CONFIG[volumeCategory]?.grade),
+      )
+      .map((student) => ({ student, count: counts.get(student.id) || 0 }))
+      .filter((row) => includeZero || row.count > 0)
+      .sort(
+        (a, b) =>
+          b.count - a.count ||
+          String(a.student.name).localeCompare(String(b.student.name), "ja"),
+      );
+    let lastRank = 0;
+    return ranked.map((row, index) => {
+      if (
+        tieMode !== "shared" ||
+        index === 0 ||
+        row.count !== ranked[index - 1].count
+      )
+        lastRank = index + 1;
+      return { ...row, rank: lastRank };
+    });
+  }, [
+    reviews,
+    exams,
+    students,
+    fromDate,
+    toDate,
+    grade,
+    volumeCategory,
+    volumeSubject,
+    includeZero,
+    tieMode,
+  ]);
   const periodText =
     fromDate || toDate
       ? `${fromDate || "開始日指定なし"} ～ ${toDate || "終了日指定なし"}`
       : "全期間";
+  const selectRecentWeek = () => {
+    const end = new Date(),
+      start = new Date(end);
+    start.setDate(end.getDate() - 6);
+    const localIso = (date) =>
+      [
+        date.getFullYear(),
+        String(date.getMonth() + 1).padStart(2, "0"),
+        String(date.getDate()).padStart(2, "0"),
+      ].join("-");
+    setFromDate(localIso(start));
+    setToDate(localIso(end));
+  };
   const createdText = new Date().toLocaleDateString("ja-JP");
+  const countRankingRows = mode === "review" ? reviewRows : volumeRows;
 
   return (
     <>
@@ -2205,6 +2294,12 @@ function Ranking({ campusName, students, exams, scores }) {
             onClick={() => setMode("volume")}
           >
             期間別 過去問演習数ランキング
+          </button>
+          <button
+            className={`btn ${mode === "review" ? "primary" : "ghost"}`}
+            onClick={() => setMode("review")}
+          >
+            期間別 復習完了数ランキング
           </button>
         </div>
         <div className="rankingSettings">
@@ -2239,14 +2334,14 @@ function Ranking({ campusName, students, exams, scores }) {
             />
             氏名非公開の下位順位も表示
           </label>
-          {mode === "volume" && (
+          {mode !== "score" && (
             <label className="checkSetting f3">
               <input
                 type="checkbox"
                 checked={includeZero}
                 onChange={(e) => setIncludeZero(e.target.checked)}
               />
-              演習数0回の生徒も表示
+              {mode === "review" ? "復習完了0件の生徒も表示" : "演習数0回の生徒も表示"}
             </label>
           )}
         </div>
@@ -2320,10 +2415,10 @@ function Ranking({ campusName, students, exams, scores }) {
           </div>
         ) : (
           <div className="reportFilters rankingFilters">
-            <F l="採点日（開始）" c="f3">
+            <F l={mode === "review" ? "提出日（開始）" : "採点日（開始）"} c="f3">
               <input type="date" value={fromDate} onChange={(e) => setFromDate(e.target.value)} />
             </F>
-            <F l="採点日（終了）" c="f3">
+            <F l={mode === "review" ? "提出日（終了）" : "採点日（終了）"} c="f3">
               <input type="date" value={toDate} onChange={(e) => setToDate(e.target.value)} />
             </F>
             <F l="学年" c="f3">
@@ -2367,6 +2462,21 @@ function Ranking({ campusName, students, exams, scores }) {
                 {volumeSubjects.map((x) => <option key={x}>{x}</option>)}
               </select>
             </F>
+            <div className="f3 rankingQuickDates">
+              <button className="btn ghost" type="button" onClick={selectRecentWeek}>
+                直近1週間
+              </button>
+              <button
+                className="btn ghost"
+                type="button"
+                onClick={() => {
+                  setFromDate("");
+                  setToDate("");
+                }}
+              >
+                累計（全期間）
+              </button>
+            </div>
           </div>
         )}
         <div className="rankingActions">
@@ -2387,7 +2497,9 @@ function Ranking({ campusName, students, exams, scores }) {
             <h1>
               {mode === "score"
                 ? "過去問 得点ランキング"
-                : "過去問演習数ランキング"}
+                : mode === "review"
+                  ? "復習ノート完了数ランキング"
+                  : "過去問演習数ランキング"}
             </h1>
           </div>
           <div className="muted">作成日：{createdText}</div>
@@ -2435,18 +2547,21 @@ function Ranking({ campusName, students, exams, scores }) {
               <span>{volumeSubject || "全科目"}</span>
             </div>
             <RankingTable
-              rows={volumeRows}
+              rows={countRankingRows}
               publishCount={publishCount}
               nameMode={nameMode}
               showLower={showLower}
-              valueHeader="過去問演習数"
-              renderValue={(r) => `${r.count}回`}
+              valueHeader={mode === "review" ? "復習完了数" : "過去問演習数"}
+              renderValue={(r) => `${r.count}${mode === "review" ? "件" : "回"}`}
             />
-            {!volumeRows.length && (
+            {!countRankingRows.length && (
               <div className="rankingEmpty">条件に合う生徒がいません。</div>
             )}
             <p className="rankingNote">
-              指定期間内に登録された採点結果1件を、過去問演習1回として集計しています。氏名は設定した上位人数のみ表示します。
+              {mode === "review"
+                ? "指定期間内の復習ノート提出記録を1件として集計しています。"
+                : "指定期間内に登録された採点結果1件を、過去問演習1回として集計しています。"}
+              氏名は設定した上位人数のみ表示します。
             </p>
           </>
         )}
